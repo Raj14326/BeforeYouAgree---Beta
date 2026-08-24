@@ -256,14 +256,14 @@ async function getVersionAtMonth(
 
   const document = await requireDocument(serviceName, termsType)
   const commits = await githubJson<GitHubCommit[]>(
-    `/repos/${OWNER}/${VERSIONS_REPO}/commits?path=${encodeURIComponent(document.path)}&since=${encodeURIComponent(monthStart.toISOString())}&until=${encodeURIComponent(monthEnd.toISOString())}&per_page=1`,
+    `/repos/${OWNER}/${VERSIONS_REPO}/commits?path=${encodeURIComponent(document.path)}&until=${encodeURIComponent(monthEnd.toISOString())}&per_page=1`,
     5 * 60 * 1000,
   )
   if (!commits.length) {
-    throw clientError(404, 'No version was archived in the selected month.')
+    throw clientError(404, 'No archived version existed on or before the selected month.')
   }
 
-  return getVersion(serviceName, termsType, commits[0].sha, response)
+  return await getVersion(serviceName, termsType, commits[0].sha, response)
 }
 
 async function getIndex() {

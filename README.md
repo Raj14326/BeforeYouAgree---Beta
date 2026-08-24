@@ -27,7 +27,7 @@ npm run dev:server
 - `GET /api/service/:name` returns tracked document types and source URLs.
 - `GET /api/versions/:name/:termsType` returns paginated Git version history.
 - `GET /api/version/:name/:termsType/latest` returns the latest cleaned Markdown.
-- `GET /api/version/:name/:termsType/at?month=YYYY-MM` returns a version archived within that month.
+- `GET /api/version/:name/:termsType/at?month=YYYY-MM` returns the version in effect at the end of that month.
 - `GET /api/version/:name/:termsType/:commitSha` returns a historical version.
 
 The backend reads the public `OpenTermsArchive/contrib-declarations` and `OpenTermsArchive/contrib-versions` repositories over HTTPS. It validates service and document names against cached repository indexes and never accepts arbitrary upstream URLs.
