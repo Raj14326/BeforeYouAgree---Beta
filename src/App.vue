@@ -1,47 +1,505 @@
 <script setup lang="ts">
-import HelloWorld from './components/HelloWorld.vue'
-import TheWelcome from './components/TheWelcome.vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import {
+  ArrowRight,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  ExternalLink,
+  FileSearch,
+  FileText,
+  LoaderCircle,
+  Search,
+  ShieldCheck,
+  Sparkles,
+} from '@lucide/vue'
+
+type Term = { sourceUrl: string | null; available: boolean; latestUrl: string | null }
+type Declaration = { name: string; terms: Record<string, Term> }
+type Service = { name: string; path: string }
+type Retrieval = {
+  id: string
+  serviceId: string
+  termType: string
+  sourceUrl: string | null
+  fetchDate: string | null
+  characterCount: number
+  content: string
+  repository: string
+  repositoryUrl: string
+}
+
+const FALLBACK_SERVICES: Service[] = [
+  'Amazon',
+  'Apple',
+  'Discord',
+  'Dropbox',
+  'Facebook',
+  'GitHub',
+  'Google',
+  'Instagram',
+  'LinkedIn',
+  'Microsoft',
+  'Netflix',
+  'PayPal',
+  'Reddit',
+  'Spotify',
+  'TikTok',
+  'Twitch',
+  'Uber',
+  'WhatsApp',
+  'X',
+  'YouTube',
+].map((name) => ({ name, path: `declarations/${name}.json` }))
+
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+
+function apiUrl(path: string) {
+  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
+}
+
+const query = ref('')
+const services = ref<Service[]>([])
+const selectedService = ref<Declaration | null>(null)
+const isCatalogueLoading = ref(true)
+const isServiceLoading = ref(false)
+const catalogueIsFallback = ref(false)
+const retrievingTerm = ref<string | null>(null)
+const retrievals = ref<Record<string, Retrieval>>({})
+const retrievalErrors = ref<Record<string, string>>({})
+const selectedMonthNumbers = ref<Record<string, string>>({})
+const selectedYears = ref<Record<string, string>>({})
+const collapsedTerms = ref<Record<string, boolean>>({})
+const failedBrandIcons = ref<Record<string, boolean>>({})
+const openHistoryTerm = ref<string | null>(null)
+const error = ref('')
+const isOpen = ref(false)
+const activeIndex = ref(-1)
+const searchInput = ref<HTMLInputElement | null>(null)
+const resultsSection = ref<HTMLElement | null>(null)
+
+const suggestions = computed(() => {
+  const needle = query.value.trim().toLowerCase()
+  if (!needle) return services.value.slice(0, 7)
+  return services.value
+    .filter((service) => service.name.toLowerCase().includes(needle))
+    .sort((a, b) => {
+      const aStarts = a.name.toLowerCase().startsWith(needle) ? 0 : 1
+      const bStarts = b.name.toLowerCase().startsWith(needle) ? 0 : 1
+      return aStarts - bStarts || a.name.localeCompare(b.name)
+    })
+    .slice(0, 7)
+})
+
+const initials = computed(() =>
+  selectedService.value?.name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase(),
+)
+const monthOptions = Array.from({ length: 12 }, (_, index) => ({
+  value: String(index + 1).padStart(2, '0'),
+  label: new Intl.DateTimeFormat('en', { month: 'long' }).format(new Date(2024, index, 1)),
+}))
+const currentYear = new Date().getFullYear()
+const yearOptions = Array.from({ length: currentYear - 2009 }, (_, index) => currentYear - index)
+
+onMounted(loadCatalogue)
+
+async function loadCatalogue() {
+  try {
+    const response = await fetch(apiUrl('/api/services'))
+    if (!response.ok) throw new Error('Catalogue unavailable')
+    const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
+    services.value = payload.data.map((service) => ({ ...service, path: service.id }))
+    if (!services.value.length) throw new Error('No services found')
+  } catch {
+    services.value = FALLBACK_SERVICES
+    catalogueIsFallback.value = true
+  } finally {
+    isCatalogueLoading.value = false
+  }
+}
+
+function handleInput() {
+  isOpen.value = true
+  activeIndex.value = -1
+  selectedService.value = null
+  error.value = ''
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (!isOpen.value && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) isOpen.value = true
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    activeIndex.value = Math.min(activeIndex.value + 1, suggestions.value.length - 1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    activeIndex.value = Math.max(activeIndex.value - 1, 0)
+  } else if (event.key === 'Enter') {
+    event.preventDefault()
+    const service = suggestions.value[activeIndex.value] ?? suggestions.value[0]
+    if (service) selectService(service)
+  } else if (event.key === 'Escape') {
+    isOpen.value = false
+  }
+}
+
+async function submitSearch() {
+  const exact = services.value.find(
+    (service) => service.name.toLowerCase() === query.value.trim().toLowerCase(),
+  )
+  const service = exact ?? suggestions.value[0]
+  if (service) await selectService(service)
+  else error.value = 'No matching service is currently tracked by Open Terms Archive.'
+}
+
+async function selectService(service: Service) {
+  query.value = service.name
+  isOpen.value = false
+  isServiceLoading.value = true
+  selectedService.value = null
+  retrievals.value = {}
+  retrievalErrors.value = {}
+  selectedMonthNumbers.value = {}
+  selectedYears.value = {}
+  collapsedTerms.value = {}
+  openHistoryTerm.value = null
+  error.value = ''
+
+  try {
+    const response = await fetch(apiUrl(`/api/service/${encodeURIComponent(service.name)}`))
+    if (!response.ok) throw new Error('Declaration unavailable')
+    const payload = (await response.json()) as {
+      name: string
+      terms: Array<{ type: string; sourceUrl: string | null; available: boolean; latestUrl: string | null }>
+    }
+    selectedService.value = {
+      name: payload.name,
+      terms: Object.fromEntries(payload.terms.map(({ type, ...term }) => [type, term])),
+    }
+    await nextTick()
+    resultsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  } catch {
+    error.value = `We could not retrieve ${service.name} from Open Terms Archive right now.`
+  } finally {
+    isServiceLoading.value = false
+  }
+}
+
+async function retrieveTerm(termType: string, monthValue?: string) {
+  if (!selectedService.value || retrievingTerm.value) return
+  retrievingTerm.value = termType
+  retrievalErrors.value[termType] = ''
+  try {
+    const term = selectedService.value.terms[termType]
+    if (!term?.latestUrl) throw new Error('No archived version is available for this document.')
+    const endpoint = monthValue
+      ? `/api/version/${encodeURIComponent(selectedService.value.name)}/${encodeURIComponent(termType)}/at?month=${encodeURIComponent(monthValue)}`
+      : term.latestUrl
+    const response = await fetch(apiUrl(endpoint))
+    const payload = (await response.json()) as Retrieval | { error: string }
+    if (!response.ok) throw new Error('error' in payload ? payload.error : 'Retrieval failed')
+    retrievals.value[termType] = payload as Retrieval
+    collapsedTerms.value[termType] = false
+    if (monthValue) openHistoryTerm.value = null
+  } catch (cause) {
+    retrievalErrors.value[termType] =
+      cause instanceof Error ? cause.message : 'The document could not be retrieved.'
+  } finally {
+    retrievingTerm.value = null
+  }
+}
+
+function sourceUrl(term: Term) {
+  return term.sourceUrl ?? ''
+}
+
+function selectedMonthValue(termType: string) {
+  const month = selectedMonthNumbers.value[termType]
+  const year = selectedYears.value[termType]
+  if (!month || !year) return ''
+  if (Number(year) === currentYear && Number(month) > new Date().getMonth() + 1) return ''
+  return `${year}-${month}`
+}
+
+function isFutureMonth(termType: string, month: string) {
+  return (
+    Number(selectedYears.value[termType]) === currentYear &&
+    Number(month) > new Date().getMonth() + 1
+  )
+}
+
+function brandIconUrl(serviceName: string) {
+  const aliases: Record<string, string> = {
+    'Twitter': 'x',
+    'Twitter (X)': 'x',
+    'Google Play': 'googleplay',
+    'Microsoft Teams': 'microsoftteams',
+    'YouTube': 'youtube',
+  }
+  const slug = aliases[serviceName] ?? serviceName.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`
+}
+
+function markBrandIconFailed(serviceName: string) {
+  failedBrandIcons.value[serviceName] = true
+}
 </script>
 
 <template>
-  <header>
-    <img alt="Vue logo" class="logo" src="./assets/logo.svg" width="125" height="125" />
+  <div class="app-shell">
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="Before You Agree home">
+        <span class="brand-mark"><Check :size="17" :stroke-width="3" /></span>
+        <span>Before You Agree</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#data-source">Data source</a>
+      </nav>
+      <span class="prototype-label">Prototype</span>
+    </header>
 
-    <div class="wrapper">
-      <HelloWorld msg="You did it!" />
-    </div>
-  </header>
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-grid" aria-hidden="true"></div>
+        <div class="hero-content">
+          <div class="eyebrow"><Sparkles :size="15" /> Terms, made readable</div>
+          <h1 id="page-title">Know what you’re agreeing to.</h1>
+          <p class="hero-copy">
+            Find a digital service and inspect the policies that shape your rights, data, and choices.
+          </p>
 
-  <main>
-    <TheWelcome />
-  </main>
+          <form class="search-form" role="search" @submit.prevent="submitSearch">
+            <div class="combobox-wrap">
+              <Search class="search-icon" :size="22" aria-hidden="true" />
+              <input
+                ref="searchInput"
+                v-model="query"
+                type="search"
+                role="combobox"
+                aria-label="Search for a service"
+                aria-controls="service-suggestions"
+                :aria-expanded="isOpen"
+                :aria-activedescendant="activeIndex >= 0 ? `suggestion-${activeIndex}` : undefined"
+                autocomplete="off"
+                placeholder="Search Google, Spotify, Discord…"
+                @input="handleInput"
+                @focus="isOpen = true"
+                @keydown="handleKeydown"
+              />
+              <LoaderCircle v-if="isCatalogueLoading" class="input-loader" :size="20" />
+
+              <ul
+                v-if="isOpen && !isCatalogueLoading && (query || suggestions.length)"
+                id="service-suggestions"
+                class="suggestions"
+                role="listbox"
+              >
+                <li v-if="query" class="suggestions-heading">Services</li>
+                <li
+                  v-for="(service, index) in suggestions"
+                  :id="`suggestion-${index}`"
+                  :key="service.path"
+                  role="option"
+                  :aria-selected="index === activeIndex"
+                  :class="{ active: index === activeIndex }"
+                  @mousedown.prevent="selectService(service)"
+                >
+                  <span class="service-avatar">
+                    <img
+                      v-if="!failedBrandIcons[service.name]"
+                      :src="brandIconUrl(service.name)"
+                      alt=""
+                      loading="lazy"
+                      @error="markBrandIconFailed(service.name)"
+                    />
+                    <span v-else>{{ service.name.slice(0, 1).toUpperCase() }}</span>
+                  </span>
+                  <span>{{ service.name }}</span>
+                  <ChevronRight :size="18" />
+                </li>
+                <li v-if="!suggestions.length" class="empty-suggestion">No tracked services found</li>
+              </ul>
+            </div>
+            <button type="submit" :disabled="isCatalogueLoading || isServiceLoading">
+              <span>{{ isServiceLoading ? 'Retrieving' : 'Review terms' }}</span>
+              <LoaderCircle v-if="isServiceLoading" class="spin" :size="19" />
+              <ArrowRight v-else :size="19" />
+            </button>
+          </form>
+          <p class="search-meta">
+            <ShieldCheck :size="15" />
+            {{ services.length.toLocaleString() }} services indexed from Open Terms Archive
+            <span v-if="catalogueIsFallback">· limited offline catalogue</span>
+          </p>
+          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
+        </div>
+      </section>
+
+      <section v-if="selectedService" ref="resultsSection" class="results-section">
+        <div class="results-inner">
+          <div class="service-heading">
+            <span class="selected-avatar">
+              <img
+                v-if="!failedBrandIcons[selectedService.name]"
+                :src="brandIconUrl(selectedService.name)"
+                alt=""
+                @error="markBrandIconFailed(selectedService.name)"
+              />
+              <span v-else>{{ initials }}</span>
+            </span>
+            <div>
+              <span class="section-kicker">Available documents</span>
+              <h2>{{ selectedService.name }}</h2>
+            </div>
+            <span class="tracked-badge"><span></span> Tracked</span>
+          </div>
+
+          <div class="document-list">
+            <article
+              v-for="(term, termType) in selectedService.terms"
+              :key="termType"
+              :class="{ expanded: retrievals[termType as string] }"
+            >
+              <span class="document-icon"><FileText :size="21" /></span>
+              <div class="document-info">
+                <h3>{{ termType }}</h3>
+                <p>Original policy and archived versions from Open Terms Archive.</p>
+              </div>
+              <div class="document-actions">
+                <button
+                  type="button"
+                  :disabled="Boolean(retrievingTerm) || !term.available"
+                  @click="retrieveTerm(termType as string)"
+                >
+                  <LoaderCircle
+                    v-if="retrievingTerm === termType"
+                    class="spin"
+                    :size="15"
+                  />
+                  <FileSearch v-else :size="15" />
+                  {{
+                    !term.available
+                      ? 'Not archived'
+                      : retrievals[termType as string]
+                        ? 'Refresh text'
+                        : 'Retrieve text'
+                  }}
+                </button>
+                <div v-if="term.available" class="history-control">
+                  <button
+                    type="button"
+                    class="history-toggle"
+                    :aria-expanded="openHistoryTerm === termType"
+                    :aria-label="`Choose an archived month for ${termType}`"
+                    title="Choose archived month"
+                    @click="openHistoryTerm = openHistoryTerm === termType ? null : (termType as string)"
+                  >
+                    <CalendarDays :size="16" />
+                  </button>
+                  <div v-if="openHistoryTerm === termType" class="history-menu">
+                    <span>Archived version</span>
+                    <div class="history-fields">
+                      <select
+                        v-model="selectedMonthNumbers[termType as string]"
+                        :aria-label="`Month for ${termType}`"
+                      >
+                        <option value="" disabled>Month</option>
+                        <option
+                          v-for="month in monthOptions"
+                          :key="month.value"
+                          :value="month.value"
+                          :disabled="isFutureMonth(termType as string, month.value)"
+                        >
+                          {{ month.label }}
+                        </option>
+                      </select>
+                      <select
+                        v-model="selectedYears[termType as string]"
+                        :aria-label="`Year for ${termType}`"
+                      >
+                        <option value="" disabled>Year</option>
+                        <option v-for="year in yearOptions" :key="year" :value="String(year)">
+                          {{ year }}
+                        </option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      class="history-submit"
+                      :disabled="!selectedMonthValue(termType as string) || Boolean(retrievingTerm)"
+                      @click="retrieveTerm(termType as string, selectedMonthValue(termType as string))"
+                    >
+                      View version
+                    </button>
+                  </div>
+                </div>
+                <a v-if="sourceUrl(term)" :href="sourceUrl(term)" target="_blank" rel="noreferrer">
+                  Source <ExternalLink :size="15" />
+                </a>
+              </div>
+              <p v-if="retrievalErrors[termType as string]" class="retrieval-error" role="alert">
+                {{ retrievalErrors[termType as string] }}
+              </p>
+              <div
+                v-if="retrievals[termType as string]"
+                class="terms-preview"
+                :class="{ collapsed: collapsedTerms[termType as string] }"
+              >
+                <div class="terms-preview-header">
+                  <span>Clean text</span>
+                  <div>
+                    <span>
+                      {{ retrievals[termType as string]!.characterCount.toLocaleString() }} characters
+                      · GitHub version
+                    </span>
+                    <button
+                      type="button"
+                      :aria-label="collapsedTerms[termType as string] ? 'Expand terms' : 'Collapse terms'"
+                      :title="collapsedTerms[termType as string] ? 'Expand terms' : 'Collapse terms'"
+                      @click="collapsedTerms[termType as string] = !collapsedTerms[termType as string]"
+                    >
+                      <ChevronDown v-if="collapsedTerms[termType as string]" :size="17" />
+                      <ChevronUp v-else :size="17" />
+                    </button>
+                  </div>
+                </div>
+                <pre v-show="!collapsedTerms[termType as string]">{{ retrievals[termType as string]!.content }}</pre>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="how-it-works" class="process-section">
+        <div class="process-intro">
+          <span class="section-kicker">How it works</span>
+          <h2>A clearer path through the fine print.</h2>
+        </div>
+        <div class="steps">
+          <div><span>01</span><h3>Find a service</h3><p>Search the public catalogue of tracked digital services.</p></div>
+          <div><span>02</span><h3>Retrieve its terms</h3><p>Open current policies and independently archived versions.</p></div>
+          <div><span>03</span><h3>Understand the risk</h3><p>Automated clause analysis will be added in the next phase.</p></div>
+        </div>
+      </section>
+    </main>
+
+    <footer id="data-source">
+      <div class="brand footer-brand">
+        <span class="brand-mark"><Check :size="15" :stroke-width="3" /></span>
+        <span>Before You Agree</span>
+      </div>
+      <p>
+        Terms data provided by
+        <a href="https://opentermsarchive.org" target="_blank" rel="noreferrer">Open Terms Archive</a>.
+      </p>
+      <p>Informational only, not legal advice.</p>
+    </footer>
+  </div>
 </template>
-
-<style scoped>
-header {
-  line-height: 1.5;
-}
-
-.logo {
-  display: block;
-  margin: 0 auto 2rem;
-}
-
-@media (min-width: 1024px) {
-  header {
-    display: flex;
-    place-items: center;
-    padding-right: calc(var(--section-gap) / 2);
-  }
-
-  .logo {
-    margin: 0 2rem 0 0;
-  }
-
-  header .wrapper {
-    display: flex;
-    place-items: flex-start;
-    flex-wrap: wrap;
-  }
-}
-</style>
