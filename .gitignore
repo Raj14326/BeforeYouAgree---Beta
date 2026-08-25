@@ -23,7 +23,7 @@ coverage
 *.njsproj
 *.sln
 *.sw?
-
+html-to-plain-text.spec.ts
 *.tsbuildinfo
 
 .eslintcache

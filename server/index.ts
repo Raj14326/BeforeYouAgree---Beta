@@ -1,6 +1,7 @@
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
+import { htmlToPlainText } from './html-to-plain-text.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -238,44 +239,6 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
     sourceUrl: terms.url || null,
     repository: 'ToS;DR',
     repositoryUrl: `https://tosdr.org/en/service/${service}`,
-  })
-}
-
-function htmlToPlainText(value: string) {
-  return decodeHtmlEntities(
-    value
-      .replace(/\r\n?/g, '\n')
-      .replace(/<\s*br\s*\/?\s*>/gi, '\n')
-      .replace(/<\s*li(?:\s[^>]*)?>/gi, '\n• ')
-      .replace(/<\s*\/(?:p|div|li|ul|ol|h[1-6]|section|article)\s*>/gi, '\n')
-      .replace(/<\s*(?:p|div|ul|ol|h[1-6]|section|article)(?:\s[^>]*)?>/gi, '\n')
-      .replace(/<[^>]*>/g, ''),
-  )
-    .replace(/[ \t]+\n/g, '\n')
-    .replace(/\n[ \t]+/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-function decodeHtmlEntities(value: string) {
-  const namedEntities: Record<string, string> = {
-    amp: '&',
-    apos: "'",
-    gt: '>',
-    lt: '<',
-    nbsp: ' ',
-    quot: '"',
-  }
-  return value.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z]+);/gi, (entity, code: string) => {
-    if (code[0] !== '#') return namedEntities[code.toLowerCase()] ?? entity
-    const hexadecimal = code[1]?.toLowerCase() === 'x'
-    const point = Number.parseInt(code.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10)
-    if (!Number.isFinite(point) || point < 0 || point > 0x10ffff) return entity
-    try {
-      return String.fromCodePoint(point)
-    } catch {
-      return entity
-    }
   })
 }
 
