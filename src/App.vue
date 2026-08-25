@@ -16,10 +16,19 @@ import {
   Sparkles,
 } from '@lucide/vue'
 
-type Term = { sourceUrl: string | null; available: boolean; latestUrl: string | null }
+type Term = {
+  sourceUrl: string | null
+  available: boolean
+  latestUrl: string | null
+  updatedAt: string | null
+  historyAvailable: boolean
+  historyUrl: string | null
+}
 type Declaration = { name: string; terms: Record<string, Term> }
 type Service = { name: string; path: string }
+type VersionOption = { id: string; updatedAt: string | null; label: string; url: string }
 type Retrieval = {
+  format: 'plain_text'
   id: string
   serviceId: string
   termType: string
@@ -69,16 +78,18 @@ const catalogueIsFallback = ref(false)
 const retrievingTerm = ref<string | null>(null)
 const retrievals = ref<Record<string, Retrieval>>({})
 const retrievalErrors = ref<Record<string, string>>({})
-const selectedMonthNumbers = ref<Record<string, string>>({})
-const selectedYears = ref<Record<string, string>>({})
 const collapsedTerms = ref<Record<string, boolean>>({})
 const failedBrandIcons = ref<Record<string, boolean>>({})
 const openHistoryTerm = ref<string | null>(null)
+const versions = ref<Record<string, VersionOption[]>>({})
+const selectedVersions = ref<Record<string, string>>({})
+const loadingHistoryTerm = ref<string | null>(null)
 const error = ref('')
 const isOpen = ref(false)
 const activeIndex = ref(-1)
 const searchInput = ref<HTMLInputElement | null>(null)
 const resultsSection = ref<HTMLElement | null>(null)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const suggestions = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -101,12 +112,6 @@ const initials = computed(() =>
     .slice(0, 2)
     .toUpperCase(),
 )
-const monthOptions = Array.from({ length: 12 }, (_, index) => ({
-  value: String(index + 1).padStart(2, '0'),
-  label: new Intl.DateTimeFormat('en', { month: 'long' }).format(new Date(2024, index, 1)),
-}))
-const currentYear = new Date().getFullYear()
-const yearOptions = Array.from({ length: currentYear - 2009 }, (_, index) => currentYear - index)
 
 onMounted(loadCatalogue)
 
@@ -130,6 +135,24 @@ function handleInput() {
   activeIndex.value = -1
   selectedService.value = null
   error.value = ''
+  clearTimeout(searchTimer)
+  const needle = query.value.trim()
+  if (needle.length < 2) return
+  searchTimer = setTimeout(() => searchServices(needle), 250)
+}
+
+async function searchServices(needle: string) {
+  try {
+    const response = await fetch(apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`))
+    if (!response.ok) return
+    const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
+    if (query.value.trim() === needle) {
+      services.value = payload.data.map((service) => ({ name: service.name, path: service.id }))
+      catalogueIsFallback.value = false
+    }
+  } catch {
+    // Keep the last successful catalogue while upstream search is unavailable.
+  }
 }
 
 function handleKeydown(event: KeyboardEvent) {
@@ -155,7 +178,7 @@ async function submitSearch() {
   )
   const service = exact ?? suggestions.value[0]
   if (service) await selectService(service)
-  else error.value = 'No matching service is currently tracked by Open Terms Archive.'
+  else error.value = 'No matching service is currently available from ToS;DR.'
 }
 
 async function selectService(service: Service) {
@@ -165,18 +188,18 @@ async function selectService(service: Service) {
   selectedService.value = null
   retrievals.value = {}
   retrievalErrors.value = {}
-  selectedMonthNumbers.value = {}
-  selectedYears.value = {}
   collapsedTerms.value = {}
   openHistoryTerm.value = null
+  versions.value = {}
+  selectedVersions.value = {}
   error.value = ''
 
   try {
-    const response = await fetch(apiUrl(`/api/service/${encodeURIComponent(service.name)}`))
+    const response = await fetch(apiUrl(`/api/service/${encodeURIComponent(service.path)}`))
     if (!response.ok) throw new Error('Declaration unavailable')
     const payload = (await response.json()) as {
       name: string
-      terms: Array<{ type: string; sourceUrl: string | null; available: boolean; latestUrl: string | null }>
+      terms: Array<{ type: string } & Term>
     }
     selectedService.value = {
       name: payload.name,
@@ -185,28 +208,24 @@ async function selectService(service: Service) {
     await nextTick()
     resultsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   } catch {
-    error.value = `We could not retrieve ${service.name} from Open Terms Archive right now.`
+    error.value = `We could not retrieve ${service.name} from ToS;DR right now.`
   } finally {
     isServiceLoading.value = false
   }
 }
 
-async function retrieveTerm(termType: string, monthValue?: string) {
+async function retrieveTerm(termType: string, versionUrl?: string) {
   if (!selectedService.value || retrievingTerm.value) return
   retrievingTerm.value = termType
   retrievalErrors.value[termType] = ''
   try {
     const term = selectedService.value.terms[termType]
     if (!term?.latestUrl) throw new Error('No archived version is available for this document.')
-    const endpoint = monthValue
-      ? `/api/version/${encodeURIComponent(selectedService.value.name)}/${encodeURIComponent(termType)}/at?month=${encodeURIComponent(monthValue)}`
-      : term.latestUrl
-    const response = await fetch(apiUrl(endpoint))
+    const response = await fetch(apiUrl(versionUrl || term.latestUrl))
     const payload = (await response.json()) as Retrieval | { error: string }
     if (!response.ok) throw new Error('error' in payload ? payload.error : 'Retrieval failed')
     retrievals.value[termType] = payload as Retrieval
     collapsedTerms.value[termType] = false
-    if (monthValue) openHistoryTerm.value = null
   } catch (cause) {
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be retrieved.'
@@ -215,23 +234,47 @@ async function retrieveTerm(termType: string, monthValue?: string) {
   }
 }
 
+async function toggleHistory(termType: string) {
+  if (openHistoryTerm.value === termType) {
+    openHistoryTerm.value = null
+    return
+  }
+  openHistoryTerm.value = termType
+  const term = selectedService.value?.terms[termType]
+  if (!term?.historyUrl || versions.value[termType]) return
+  loadingHistoryTerm.value = termType
+  retrievalErrors.value[termType] = ''
+  try {
+    const response = await fetch(apiUrl(term.historyUrl))
+    const payload = (await response.json()) as { data?: VersionOption[]; error?: string }
+    if (!response.ok) throw new Error(payload.error || 'Version history could not be retrieved.')
+    versions.value[termType] = payload.data || []
+    selectedVersions.value[termType] = versions.value[termType]?.[0]?.url || ''
+  } catch (cause) {
+    retrievalErrors.value[termType] =
+      cause instanceof Error ? cause.message : 'Version history could not be retrieved.'
+  } finally {
+    loadingHistoryTerm.value = null
+  }
+}
+
+async function retrieveSelectedVersion(termType: string) {
+  const versionUrl = selectedVersions.value[termType]
+  if (!versionUrl) return
+  await retrieveTerm(termType, versionUrl)
+  openHistoryTerm.value = null
+}
+
+function formattedUpdatedAt(value: string | null) {
+  if (!value) return 'an unknown date'
+  return new Intl.DateTimeFormat('en-AU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(new Date(value))
+}
+
 function sourceUrl(term: Term) {
   return term.sourceUrl ?? ''
-}
-
-function selectedMonthValue(termType: string) {
-  const month = selectedMonthNumbers.value[termType]
-  const year = selectedYears.value[termType]
-  if (!month || !year) return ''
-  if (Number(year) === currentYear && Number(month) > new Date().getMonth() + 1) return ''
-  return `${year}-${month}`
-}
-
-function isFutureMonth(termType: string, month: string) {
-  return (
-    Number(selectedYears.value[termType]) === currentYear &&
-    Number(month) > new Date().getMonth() + 1
-  )
 }
 
 function brandIconUrl(serviceName: string) {
@@ -335,7 +378,7 @@ function markBrandIconFailed(serviceName: string) {
           </form>
           <p class="search-meta">
             <ShieldCheck :size="15" />
-            {{ services.length.toLocaleString() }} services indexed from Open Terms Archive
+            {{ services.length.toLocaleString() }} services loaded from ToS;DR
             <span v-if="catalogueIsFallback">· limited offline catalogue</span>
           </p>
           <p v-if="error" class="error-message" role="alert">{{ error }}</p>
@@ -370,7 +413,7 @@ function markBrandIconFailed(serviceName: string) {
               <span class="document-icon"><FileText :size="21" /></span>
               <div class="document-info">
                 <h3>{{ termType }}</h3>
-                <p>Original policy and archived versions from Open Terms Archive.</p>
+                <p>Current version updated {{ formattedUpdatedAt(term.updatedAt) }}.</p>
               </div>
               <div class="document-actions">
                 <button
@@ -392,51 +435,49 @@ function markBrandIconFailed(serviceName: string) {
                         : 'Retrieve text'
                   }}
                 </button>
-                <div v-if="term.available" class="history-control">
+                <div v-if="term.historyAvailable" class="history-control">
                   <button
                     type="button"
                     class="history-toggle"
                     :aria-expanded="openHistoryTerm === termType"
-                    :aria-label="`Choose an archived month for ${termType}`"
-                    title="Choose archived month"
-                    @click="openHistoryTerm = openHistoryTerm === termType ? null : (termType as string)"
+                    :aria-label="`Choose a historical version of ${termType}`"
+                    title="Choose a historical version"
+                    @click="toggleHistory(termType as string)"
                   >
-                    <CalendarDays :size="16" />
+                    <LoaderCircle
+                      v-if="loadingHistoryTerm === termType"
+                      class="spin"
+                      :size="15"
+                    />
+                    <CalendarDays v-else :size="16" />
                   </button>
                   <div v-if="openHistoryTerm === termType" class="history-menu">
-                    <span>Archived version</span>
+                    <span>Available update dates</span>
                     <div class="history-fields">
                       <select
-                        v-model="selectedMonthNumbers[termType as string]"
-                        :aria-label="`Month for ${termType}`"
+                        v-model="selectedVersions[termType as string]"
+                        :aria-label="`Version date for ${termType}`"
+                        :disabled="loadingHistoryTerm === termType"
                       >
-                        <option value="" disabled>Month</option>
-                        <option
-                          v-for="month in monthOptions"
-                          :key="month.value"
-                          :value="month.value"
-                          :disabled="isFutureMonth(termType as string, month.value)"
-                        >
-                          {{ month.label }}
+                        <option value="" disabled>
+                          {{ loadingHistoryTerm === termType ? 'Loading dates…' : 'Select a date' }}
                         </option>
-                      </select>
-                      <select
-                        v-model="selectedYears[termType as string]"
-                        :aria-label="`Year for ${termType}`"
-                      >
-                        <option value="" disabled>Year</option>
-                        <option v-for="year in yearOptions" :key="year" :value="String(year)">
-                          {{ year }}
+                        <option
+                          v-for="version in versions[termType as string] || []"
+                          :key="version.id"
+                          :value="version.url"
+                        >
+                          {{ version.label }}
                         </option>
                       </select>
                     </div>
                     <button
                       type="button"
                       class="history-submit"
-                      :disabled="!selectedMonthValue(termType as string) || Boolean(retrievingTerm)"
-                      @click="retrieveTerm(termType as string, selectedMonthValue(termType as string))"
+                      :disabled="!selectedVersions[termType as string] || Boolean(retrievingTerm)"
+                      @click="retrieveSelectedVersion(termType as string)"
                     >
-                      View version
+                      Retrieve selected version
                     </button>
                   </div>
                 </div>
@@ -453,11 +494,11 @@ function markBrandIconFailed(serviceName: string) {
                 :class="{ collapsed: collapsedTerms[termType as string] }"
               >
                 <div class="terms-preview-header">
-                  <span>Clean text</span>
+                  <span>Plain text</span>
                   <div>
                     <span>
                       {{ retrievals[termType as string]!.characterCount.toLocaleString() }} characters
-                      · GitHub version
+                      · {{ retrievals[termType as string]!.repository }}
                     </span>
                     <button
                       type="button"
@@ -497,7 +538,7 @@ function markBrandIconFailed(serviceName: string) {
       </div>
       <p>
         Terms data provided by
-        <a href="https://opentermsarchive.org" target="_blank" rel="noreferrer">Open Terms Archive</a>.
+        <a href="https://tosdr.org" target="_blank" rel="noreferrer">ToS;DR</a>.
       </p>
       <p>Informational only, not legal advice.</p>
     </footer>

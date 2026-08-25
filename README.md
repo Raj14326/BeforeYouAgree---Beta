@@ -23,16 +23,16 @@ npm run dev:server
 ## API
 
 - `GET /api/health` checks backend availability.
-- `GET /api/services` returns the Open Terms Archive service catalogue.
-- `GET /api/service/:name` returns tracked document types and source URLs.
-- `GET /api/versions/:name/:termsType` returns paginated Git version history.
-- `GET /api/version/:name/:termsType/latest` returns the latest cleaned Markdown.
-- `GET /api/version/:name/:termsType/at?month=YYYY-MM` returns the version in effect at the end of that month.
-- `GET /api/version/:name/:termsType/:commitSha` returns a historical version.
+- `GET /api/services?search=github` searches service names using ToS;DR Search V5.
+- `GET /api/services` returns the first page of the ToS;DR service catalogue.
+- `GET /api/service/:serviceId` returns a service and its available documents.
+- `GET /api/versions/:serviceId/:documentId` returns real archived update dates when a matching Open Terms Archive document exists.
+- `GET /api/version/:serviceId/:documentId/latest` returns the current document as cleaned plain text in JSON.
+- `GET /api/version/:serviceId/:documentId/:commitSha` returns the selected historical version.
 
-The backend reads the public `OpenTermsArchive/contrib-declarations` and `OpenTermsArchive/contrib-versions` repositories over HTTPS. It validates service and document names against cached repository indexes and never accepts arbitrary upstream URLs.
+The backend uses ToS;DR's public `search/v5`, `service/v3`, and `document/v1` endpoints for services and current documents. When available, historical revision dates and text come from `OpenTermsArchive/contrib-versions`. Responses are cached locally, document IDs are checked against their service, and HTML elements are removed from current document text before it is returned. Every endpoint responds with JSON so its output can be consumed by the frontend or a later model pipeline.
 
-Unauthenticated GitHub API access is rate limited. For development or deployment, set an optional `GITHUB_TOKEN` environment variable to increase the limit. The token only needs permission to read public repositories.
+Unauthenticated GitHub API access is rate limited. Set an optional `GITHUB_TOKEN` on the backend to increase the limit; it only needs access to public repositories.
 
 ## Production
 
@@ -43,8 +43,7 @@ The frontend and backend are configured as separate HTTPS services. `amplify.yml
 1. Create a Railway project from this GitHub repository.
 2. Add a service and let Railway use the repository's `railway.json` configuration.
 3. Generate a public Railway domain under **Settings > Networking**.
-4. Set `GITHUB_TOKEN` to a GitHub token with public-repository read access.
-5. After creating the Amplify app, set `ALLOWED_ORIGINS` to its full HTTPS URL. Multiple origins can be comma-separated.
+4. After creating the Amplify app, set `ALLOWED_ORIGINS` to its full HTTPS URL. Multiple origins can be comma-separated.
 
 Railway supplies `PORT`. The server binds to `0.0.0.0` by default. Confirm deployment with `https://YOUR-RAILWAY-DOMAIN/api/health`.
 
@@ -55,4 +54,4 @@ Railway supplies `PORT`. The server binds to `0.0.0.0` by default. Confirm deplo
 3. Add `VITE_API_URL` under **Hosting > Environment variables**, using the Railway origin without a trailing slash, for example `https://example.up.railway.app`.
 4. Redeploy the Amplify branch after adding the variable.
 
-`VITE_API_URL` is embedded during the frontend build and is not a secret. Keep `GITHUB_TOKEN` only in Railway. Local development continues to use Vite's `/api` proxy when `VITE_API_URL` is unset.
+`VITE_API_URL` is embedded during the frontend build and is not a secret. Local development continues to use Vite's `/api` proxy when `VITE_API_URL` is unset.

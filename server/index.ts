@@ -3,59 +3,37 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 
 type ApiError = Error & { statusCode: number }
-type GitHubTreeItem = { path: string; type: 'blob' | 'tree'; size?: number; sha: string }
-type GitHubTree = { tree: GitHubTreeItem[]; truncated: boolean }
+type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
+type DocumentReference = { id: number; name: string; url: string; updated_at?: string }
+type Service = ServiceSummary & { documents?: DocumentReference[] }
+type Document = DocumentReference & { text: string; service_id: number }
+type RequestBucket = { count: number; resetAt: number }
+type GitHubTree = { tree: Array<{ path: string; type: string }>; truncated: boolean }
 type GitHubCommit = {
   sha: string
-  commit: {
-    message: string
-    author?: { date?: string }
-    committer?: { date?: string }
-  }
+  commit: { message: string; author?: { date?: string }; committer?: { date?: string } }
   files?: Array<{ filename: string }>
 }
-type DeclarationTerm = { fetch?: string | { url?: string } }
-type ServiceDeclaration = { name?: string; terms?: Record<string, DeclarationTerm> }
-type IndexedDocument = {
-  serviceName: string
-  termsType: string
-  path: string
-  size?: number
-  sha: string
-}
-type IndexedService = {
-  id: string
-  name: string
-  termsTypes: string[]
-  declarationPath: string
-}
-type IndexCache = {
-  expiresAt: number
-  services: IndexedService[]
-  documents: Map<string, IndexedDocument>
-}
-type RequestBucket = { count: number; resetAt: number }
+type ArchivedDocument = { serviceName: string; termsType: string; path: string }
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '0.0.0.0'
+const TOSDR_API = 'https://api.tosdr.org'
+const GITHUB_API = 'https://api.github.com'
+const GITHUB_RAW = 'https://raw.githubusercontent.com'
+const ARCHIVE_OWNER = 'OpenTermsArchive'
+const ARCHIVE_REPO = 'contrib-versions'
+const CACHE_TTL_MS = 10 * 60 * 1000
+const CONTENT_CACHE_TTL_MS = 60 * 60 * 1000
+const RATE_LIMIT = 60
+const RATE_WINDOW_MS = 60 * 1000
 const ALLOWED_ORIGINS = new Set(
   (process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((origin) => origin.trim().replace(/\/$/, ''))
     .filter(Boolean),
 )
-const GITHUB_API = 'https://api.github.com'
-const GITHUB_RAW = 'https://raw.githubusercontent.com'
-const OWNER = 'OpenTermsArchive'
-const DECLARATIONS_REPO = 'contrib-declarations'
-const VERSIONS_REPO = 'contrib-versions'
-const BRANCH = 'main'
-const CACHE_TTL_MS = 10 * 60 * 1000
-const CONTENT_CACHE_TTL_MS = 60 * 60 * 1000
-const RATE_LIMIT = 60
-const RATE_WINDOW_MS = 60 * 1000
 
-let indexCache: IndexCache = { expiresAt: 0, services: [], documents: new Map() }
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>()
 const requestBuckets = new Map<string, RequestBucket>()
 
@@ -65,263 +43,289 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
-
     if (request.method === 'GET' && url.pathname === '/api/health') {
-      return sendJson(response, 200, {
-        status: 'ok',
-        source: 'github',
-        repository: `${OWNER}/${VERSIONS_REPO}`,
-      })
+      return sendJson(response, 200, { status: 'ok', source: 'tosdr', upstream: TOSDR_API })
     }
-
     if (request.method !== 'GET') {
       return sendJson(response, 405, { error: 'Only GET requests are supported.' })
     }
 
     enforceRateLimit(request)
     const segments = url.pathname.split('/').filter(Boolean).map(decodePathSegment)
-
     if (segments.length === 2 && segments[0] === 'api' && segments[1] === 'services') {
       return await listServices(url, response)
     }
-
     if (segments.length === 3 && segments[0] === 'api' && segments[1] === 'service') {
       return await getService(segments[2], response)
     }
-
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'versions') {
       return await listVersions(segments[2], segments[3], url, response)
     }
-
     if (
       segments.length === 5 &&
       segments[0] === 'api' &&
       segments[1] === 'version' &&
       segments[4] === 'latest'
     ) {
-      return await getVersion(segments[2], segments[3], null, response)
+      return await getDocument(segments[2], segments[3], response)
     }
-
-    if (
-      segments.length === 5 &&
-      segments[0] === 'api' &&
-      segments[1] === 'version' &&
-      segments[4] === 'at'
-    ) {
-      return await getVersionAtMonth(segments[2], segments[3], url, response)
-    }
-
     if (segments.length === 5 && segments[0] === 'api' && segments[1] === 'version') {
-      return await getVersion(segments[2], segments[3], segments[4], response)
+      return await getArchivedVersion(segments[2], segments[3], segments[4], response)
     }
-
     return sendJson(response, 404, { error: 'Endpoint not found.' })
   } catch (error: unknown) {
     const apiError = normalizeError(error)
-    const status = apiError.statusCode
-    if (status >= 500) console.error(apiError)
-    return sendJson(response, status, {
-      error: status >= 500 ? 'GitHub data could not be retrieved right now.' : apiError.message,
+    if (apiError.statusCode >= 500) console.error(apiError)
+    return sendJson(response, apiError.statusCode, {
+      error:
+        apiError.statusCode >= 500
+          ? 'ToS;DR data could not be retrieved right now.'
+          : apiError.message,
     })
   }
 })
 
 server.listen(PORT, HOST, () => {
-  console.log(`Before You Agree GitHub API listening on http://${HOST}:${PORT}`)
+  console.log(`Before You Agree ToS;DR API listening on http://${HOST}:${PORT}`)
 })
 
 async function listServices(url: URL, response: ServerResponse) {
-  const index = await getIndex()
-  const query = (url.searchParams.get('search') || '').trim().toLowerCase()
-  const limit = parseInteger(url.searchParams.get('limit'), 1000, 1, 1000)
-  const data = index.services
-    .filter((service) => !query || service.name.toLowerCase().includes(query))
-    .slice(0, limit)
-    .map(({ id, name, termsTypes }) => ({ id, name, termsTypes }))
+  const query = (url.searchParams.get('search') || '').trim()
+  const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 500)
+  let services: ServiceSummary[]
+  let total: number
 
-  return sendJson(response, 200, { data, count: data.length, total: index.services.length })
+  if (query) {
+    const payload = await tosdrJson<{ services?: ServiceSummary[] }>(
+      `/search/v5?query=${encodeURIComponent(query)}`,
+      CACHE_TTL_MS,
+    )
+    services = payload.services || []
+    total = services.length
+  } else {
+    const payload = await tosdrJson<{
+      services?: ServiceSummary[]
+      page?: { total?: number }
+    }>('/service/v3?page=1', CACHE_TTL_MS)
+    services = payload.services || []
+    total = payload.page?.total || services.length
+  }
+
+  const data = services
+    .filter((service) => Number.isInteger(service.id) && service.name)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, limit)
+    .map(({ id, name, slug, rating }) => ({ id: String(id), name, slug, rating }))
+  return sendJson(response, 200, { data, count: data.length, total })
 }
 
-async function getService(serviceName: string, response: ServerResponse) {
-  const index = await getIndex()
-  const service = index.services.find((item) => item.name === serviceName)
-  if (!service) throw clientError(404, 'Service not found.')
+async function getService(serviceId: string, response: ServerResponse) {
+  const id = parseId(serviceId, 'service')
+  const service = await tosdrJson<Service>(`/service/v3?id=${id}`, CACHE_TTL_MS)
+  if (!service?.id || !service.name) throw clientError(404, 'Service not found.')
 
-  const declaration = await getDeclaration(service)
-  const terms = Object.entries(declaration.terms || {}).map(([type, term]) => {
-    const document = index.documents.get(documentKey(serviceName, type))
+  const archive = await getArchiveIndex().catch((error) => {
+    console.warn('Historical archive index unavailable:', error)
+    return []
+  })
+  const terms = (service.documents || []).map((document) => {
+    const archivedDocument = findArchivedDocument(archive, service.name, document.name)
     return {
-      type,
-      sourceUrl: typeof term.fetch === 'string' ? term.fetch : term.fetch?.url || null,
-      available: Boolean(document),
-      latestUrl: document
-        ? `/api/version/${encodeURIComponent(serviceName)}/${encodeURIComponent(type)}/latest`
-        : null,
+      id: String(document.id),
+      type: document.name,
+      sourceUrl: document.url || null,
+      available: true,
+      latestUrl: `/api/version/${id}/${document.id}/latest`,
+      updatedAt: document.updated_at || null,
+      historyAvailable: Boolean(archivedDocument),
+      historyUrl: archivedDocument ? `/api/versions/${id}/${document.id}` : null,
     }
   })
-
-  return sendJson(response, 200, { id: serviceName, name: declaration.name || serviceName, terms })
+  return sendJson(response, 200, {
+    id: String(service.id),
+    name: service.name,
+    rating: service.rating || 'N/A',
+    terms,
+  })
 }
 
 async function listVersions(
-  serviceName: string,
-  termsType: string,
+  serviceId: string,
+  documentId: string,
   url: URL,
   response: ServerResponse,
 ) {
-  const document = await requireDocument(serviceName, termsType)
-  const limit = parseInteger(url.searchParams.get('limit'), 20, 1, 100)
-  const page = parseInteger(url.searchParams.get('page'), 1, 1, 1000)
+  const { archivedDocument } = await resolveArchivedDocument(serviceId, documentId)
+  const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 100)
   const commits = await githubJson<GitHubCommit[]>(
-    `/repos/${OWNER}/${VERSIONS_REPO}/commits?path=${encodeURIComponent(document.path)}&per_page=${limit}&page=${page}`,
-    2 * 60 * 1000,
-  )
-
-  const data = commits.map((commit) => ({
-    id: commit.sha,
-    serviceId: serviceName,
-    termsType,
-    fetchDate: commit.commit.committer?.date || commit.commit.author?.date || null,
-    message: commit.commit.message,
-    url: `/api/version/${encodeURIComponent(serviceName)}/${encodeURIComponent(termsType)}/${commit.sha}`,
-  }))
-
-  return sendJson(response, 200, {
-    data,
-    count: data.length,
-    limit,
-    page,
-    hasMore: data.length === limit,
-  })
-}
-
-async function getVersion(
-  serviceName: string,
-  termsType: string,
-  revision: string | null,
-  response: ServerResponse,
-) {
-  const document = await requireDocument(serviceName, termsType)
-  if (revision && !/^[a-f0-9]{40}$/i.test(revision)) throw clientError(400, 'Invalid version ID.')
-
-  const commit = revision
-    ? await githubJson<GitHubCommit>(`/repos/${OWNER}/${VERSIONS_REPO}/commits/${revision}`, 5 * 60 * 1000)
-    : (
-        await githubJson<GitHubCommit[]>(
-          `/repos/${OWNER}/${VERSIONS_REPO}/commits?path=${encodeURIComponent(document.path)}&per_page=1`,
-          5 * 60 * 1000,
-        )
-      )[0]
-
-  if (!commit) throw clientError(404, 'No version was found for this document.')
-  if (revision && !commit.files?.some((file) => file.filename === document.path)) {
-    throw clientError(404, 'That version does not belong to this document.')
-  }
-
-  const content = await rawText(VERSIONS_REPO, commit.sha, document.path)
-  const service = (await getIndex()).services.find((item) => item.name === serviceName)
-  const declaration = service ? await getDeclaration(service) : null
-  const term = declaration?.terms?.[termsType]
-
-  return sendJson(response, 200, {
-    id: commit.sha,
-    serviceId: serviceName,
-    termsType,
-    fetchDate: commit.commit.committer?.date || commit.commit.author?.date || null,
-    content,
-    characterCount: content.length,
-    sourceUrl: typeof term?.fetch === 'string' ? term.fetch : term?.fetch?.url || null,
-    repository: `${OWNER}/${VERSIONS_REPO}`,
-    repositoryUrl: `https://github.com/${OWNER}/${VERSIONS_REPO}/blob/${commit.sha}/${encodePath(document.path)}`,
-  })
-}
-
-async function getVersionAtMonth(
-  serviceName: string,
-  termsType: string,
-  url: URL,
-  response: ServerResponse,
-) {
-  const monthValue = url.searchParams.get('month')
-  if (!monthValue) throw clientError(400, 'The month query parameter is required.')
-  if (!/^\d{4}-\d{2}$/.test(monthValue)) {
-    throw clientError(400, 'The requested month must use YYYY-MM format.')
-  }
-
-  const [year, month] = monthValue.split('-').map(Number)
-  if (month < 1 || month > 12) throw clientError(400, 'The requested month is invalid.')
-  const monthStart = new Date(Date.UTC(year, month - 1, 1))
-  const monthEnd = new Date(Date.UTC(year, month, 1) - 1)
-  if (monthStart > new Date()) throw clientError(416, 'The requested month is in the future.')
-
-  const document = await requireDocument(serviceName, termsType)
-  const commits = await githubJson<GitHubCommit[]>(
-    `/repos/${OWNER}/${VERSIONS_REPO}/commits?path=${encodeURIComponent(document.path)}&until=${encodeURIComponent(monthEnd.toISOString())}&per_page=1`,
+    `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits?path=${encodeURIComponent(archivedDocument.path)}&per_page=${limit}`,
     5 * 60 * 1000,
   )
-  if (!commits.length) {
-    throw clientError(404, 'No archived version existed on or before the selected month.')
-  }
-
-  return await getVersion(serviceName, termsType, commits[0].sha, response)
+  const data = commits.map((commit) => ({
+    id: commit.sha,
+    updatedAt: commit.commit.committer?.date || commit.commit.author?.date || null,
+    label: formatVersionDate(commit.commit.committer?.date || commit.commit.author?.date),
+    message: commit.commit.message,
+    url: `/api/version/${serviceId}/${documentId}/${commit.sha}`,
+  }))
+  return sendJson(response, 200, { data, count: data.length })
 }
 
-async function getIndex() {
-  if (indexCache.expiresAt > Date.now()) return indexCache
-
-  const [declarationsTree, versionsTree] = await Promise.all([
-    githubJson<GitHubTree>(`/repos/${OWNER}/${DECLARATIONS_REPO}/git/trees/${BRANCH}?recursive=1`, CACHE_TTL_MS),
-    githubJson<GitHubTree>(`/repos/${OWNER}/${VERSIONS_REPO}/git/trees/${BRANCH}?recursive=1`, CACHE_TTL_MS),
-  ])
-
-  if (declarationsTree.truncated || versionsTree.truncated) {
-    throw serverError('A GitHub repository tree was truncated.')
+async function getArchivedVersion(
+  serviceId: string,
+  documentId: string,
+  revision: string,
+  response: ServerResponse,
+) {
+  if (!/^[a-f0-9]{40}$/i.test(revision)) throw clientError(400, 'Invalid version ID.')
+  const { service, document, archivedDocument } = await resolveArchivedDocument(serviceId, documentId)
+  const commit = await githubJson<GitHubCommit>(
+    `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits/${revision}`,
+    5 * 60 * 1000,
+  )
+  if (!commit.files?.some((file) => file.filename === archivedDocument.path)) {
+    throw clientError(404, 'That version does not belong to this document.')
   }
-
-  const documents = new Map<string, IndexedDocument>()
-  for (const item of versionsTree.tree) {
-    const match = item.type === 'blob' ? item.path.match(/^([^/]+)\/(.+)\.md$/) : null
-    if (!match) continue
-    documents.set(documentKey(match[1], match[2]), {
-      serviceName: match[1],
-      termsType: match[2],
-      path: item.path,
-      size: item.size,
-      sha: item.sha,
-    })
-  }
-
-  const services = declarationsTree.tree
-    .filter((item) => item.type === 'blob' && /^declarations\/[^/]+\.json$/.test(item.path))
-    .map((item) => {
-      const name = item.path.split('/').at(-1)!.replace(/\.json$/, '')
-      const termsTypes = [...documents.values()]
-        .filter((document) => document.serviceName === name)
-        .map((document) => document.termsType)
-        .sort()
-      return { id: name, name, termsTypes, declarationPath: item.path }
-    })
-    .sort((a, b) => a.name.localeCompare(b.name))
-
-  indexCache = { expiresAt: Date.now() + CACHE_TTL_MS, services, documents }
-  return indexCache
+  const content = await archiveText(revision, archivedDocument.path)
+  const fetchDate = commit.commit.committer?.date || commit.commit.author?.date || null
+  return sendJson(response, 200, {
+    format: 'plain_text',
+    id: revision,
+    serviceId: String(service.id),
+    termsType: document.name,
+    fetchDate,
+    content,
+    characterCount: content.length,
+    sourceUrl: document.url || null,
+    repository: `${ARCHIVE_OWNER}/${ARCHIVE_REPO}`,
+    repositoryUrl: `https://github.com/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/blob/${revision}/${encodePath(archivedDocument.path)}`,
+  })
 }
 
-async function getDeclaration(service: IndexedService): Promise<ServiceDeclaration> {
-  return cachedJson<ServiceDeclaration>(
-    `declaration:${service.name}`,
-    CACHE_TTL_MS,
-    async () => JSON.parse(await rawText(DECLARATIONS_REPO, BRANCH, service.declarationPath)),
+async function resolveArchivedDocument(serviceId: string, documentId: string) {
+  const serviceNumber = parseId(serviceId, 'service')
+  const documentNumber = parseId(documentId, 'document')
+  const service = await tosdrJson<Service>(`/service/v3?id=${serviceNumber}`, CACHE_TTL_MS)
+  const document = service.documents?.find((item) => item.id === documentNumber)
+  if (!document) throw clientError(404, 'Terms document not found for this service.')
+  const archivedDocument = findArchivedDocument(await getArchiveIndex(), service.name, document.name)
+  if (!archivedDocument) throw clientError(404, 'No historical versions are available for this document.')
+  return { service, document, archivedDocument }
+}
+
+async function getDocument(serviceId: string, documentId: string, response: ServerResponse) {
+  const service = parseId(serviceId, 'service')
+  const document = parseId(documentId, 'document')
+  const payload = await tosdrJson<{ parameters?: Document }>(
+    `/document/v1?id=${document}`,
+    CONTENT_CACHE_TTL_MS,
+  )
+  const terms = payload.parameters
+  if (!terms?.id || terms.service_id !== service) {
+    throw clientError(404, 'Terms document not found for this service.')
+  }
+
+  const content = htmlToPlainText(terms.text || '')
+
+  return sendJson(response, 200, {
+    format: 'plain_text',
+    id: String(terms.id),
+    serviceId: String(service),
+    termsType: terms.name,
+    fetchDate: terms.updated_at || null,
+    content,
+    characterCount: content.length,
+    sourceUrl: terms.url || null,
+    repository: 'ToS;DR',
+    repositoryUrl: `https://tosdr.org/en/service/${service}`,
+  })
+}
+
+function htmlToPlainText(value: string) {
+  return decodeHtmlEntities(
+    value
+      .replace(/\r\n?/g, '\n')
+      .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+      .replace(/<\s*li(?:\s[^>]*)?>/gi, '\n• ')
+      .replace(/<\s*\/(?:p|div|li|ul|ol|h[1-6]|section|article)\s*>/gi, '\n')
+      .replace(/<\s*(?:p|div|ul|ol|h[1-6]|section|article)(?:\s[^>]*)?>/gi, '\n')
+      .replace(/<[^>]*>/g, ''),
+  )
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function decodeHtmlEntities(value: string) {
+  const namedEntities: Record<string, string> = {
+    amp: '&',
+    apos: "'",
+    gt: '>',
+    lt: '<',
+    nbsp: ' ',
+    quot: '"',
+  }
+  return value.replace(/&(#(?:x[0-9a-f]+|\d+)|[a-z]+);/gi, (entity, code: string) => {
+    if (code[0] !== '#') return namedEntities[code.toLowerCase()] ?? entity
+    const hexadecimal = code[1]?.toLowerCase() === 'x'
+    const point = Number.parseInt(code.slice(hexadecimal ? 2 : 1), hexadecimal ? 16 : 10)
+    if (!Number.isFinite(point) || point < 0 || point > 0x10ffff) return entity
+    try {
+      return String.fromCodePoint(point)
+    } catch {
+      return entity
+    }
+  })
+}
+
+async function tosdrJson<T>(path: string, ttl: number): Promise<T> {
+  return cachedJson<T>(`tosdr:${path}`, ttl, async () => {
+    const response = await fetch(`${TOSDR_API}${path}`, {
+      headers: { Accept: 'application/json', 'User-Agent': 'BeforeYouAgree' },
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!response.ok) throw tosdrError(response)
+    return (await response.json()) as T
+  })
+}
+
+async function getArchiveIndex(): Promise<ArchivedDocument[]> {
+  return cachedJson<ArchivedDocument[]>('archive:index', CACHE_TTL_MS, async () => {
+    const tree = await githubJson<GitHubTree>(
+      `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/git/trees/main?recursive=1`,
+      CACHE_TTL_MS,
+    )
+    if (tree.truncated) throw serverError('The historical archive index was truncated.')
+    return tree.tree.flatMap((item) => {
+      const match = item.type === 'blob' ? item.path.match(/^([^/]+)\/(.+)\.md$/) : null
+      return match
+        ? [{ serviceName: match[1], termsType: match[2], path: item.path }]
+        : []
+    })
+  })
+}
+
+function findArchivedDocument(
+  archive: ArchivedDocument[],
+  serviceName: string,
+  documentName: string,
+) {
+  const serviceKey = comparableName(serviceName, true)
+  const documentKey = comparableName(documentName, false)
+  return archive.find(
+    (item) =>
+      comparableName(item.serviceName, true) === serviceKey &&
+      comparableName(item.termsType, false) === documentKey,
   )
 }
 
-async function requireDocument(serviceName: string, termsType: string): Promise<IndexedDocument> {
-  const index = await getIndex()
-  const service = index.services.find((item) => item.name === serviceName)
-  if (!service) throw clientError(404, 'Service not found.')
-  const document = index.documents.get(documentKey(serviceName, termsType))
-  if (!document) throw clientError(404, 'Terms document not found.')
-  return document
+function comparableName(value: string, service: boolean) {
+  let normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '')
+  if (service) normalized = normalized.replace(/services?$/, '')
+  return normalized
+    .replace(/termsandconditions|termsofuse|termsofservice/g, 'terms')
+    .replace(/privacystatement|privacynotice|privacypolicy/g, 'privacy')
 }
 
 async function githubJson<T>(path: string, ttl: number): Promise<T> {
@@ -335,23 +339,15 @@ async function githubJson<T>(path: string, ttl: number): Promise<T> {
   })
 }
 
-async function rawText(repo: string, revision: string, path: string): Promise<string> {
-  return cachedJson<string>(`raw:${repo}:${revision}:${path}`, CONTENT_CACHE_TTL_MS, async () => {
-    const response = await fetch(`${GITHUB_RAW}/${OWNER}/${repo}/${revision}/${encodePath(path)}`, {
-      headers: { 'User-Agent': 'BeforeYouAgree' },
-      signal: AbortSignal.timeout(20_000),
-    })
+async function archiveText(revision: string, path: string) {
+  return cachedJson<string>(`archive:${revision}:${path}`, CONTENT_CACHE_TTL_MS, async () => {
+    const response = await fetch(
+      `${GITHUB_RAW}/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/${revision}/${encodePath(path)}`,
+      { headers: { 'User-Agent': 'BeforeYouAgree' }, signal: AbortSignal.timeout(20_000) },
+    )
     if (!response.ok) throw githubError(response)
     return response.text()
   })
-}
-
-async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
-  const cached = responseCache.get(key)
-  if (cached?.expiresAt && cached.expiresAt > Date.now()) return cached.value as T
-  const value = await loader()
-  responseCache.set(key, { expiresAt: Date.now() + ttl, value })
-  return value
 }
 
 function githubHeaders(): Record<string, string> {
@@ -365,11 +361,44 @@ function githubHeaders(): Record<string, string> {
 }
 
 function githubError(response: Response): ApiError {
-  if (response.status === 404) return clientError(404, 'The requested GitHub data was not found.')
+  if (response.status === 404) return clientError(404, 'The requested historical version was not found.')
   if (response.status === 403 || response.status === 429) {
-    return clientError(503, 'GitHub rate limit reached. Configure GITHUB_TOKEN or try again later.')
+    return clientError(503, 'Historical archive rate limit reached. Try again later.')
   }
-  return serverError(`GitHub request failed with ${response.status}.`)
+  return serverError(`Historical archive request failed with ${response.status}.`)
+}
+
+function encodePath(path: string) {
+  return path.split('/').map(encodeURIComponent).join('/')
+}
+
+function formatVersionDate(value?: string) {
+  if (!value) return 'Unknown date'
+  return new Intl.DateTimeFormat('en-AU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    timeZone: 'UTC',
+  }).format(new Date(value))
+}
+
+async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
+  const cached = responseCache.get(key)
+  if (cached?.expiresAt && cached.expiresAt > Date.now()) return cached.value as T
+  const value = await loader()
+  responseCache.set(key, { expiresAt: Date.now() + ttl, value })
+  return value
+}
+
+function tosdrError(response: Response): ApiError {
+  if (response.status === 404) return clientError(404, 'The requested ToS;DR data was not found.')
+  if (response.status === 422) return clientError(400, 'The ToS;DR request was invalid.')
+  if (response.status === 429) return clientError(503, 'ToS;DR rate limit reached. Try again later.')
+  return serverError(`ToS;DR request failed with ${response.status}.`)
+}
+
+function parseId(value: string, label: string) {
+  if (!/^\d+$/.test(value)) throw clientError(400, `Invalid ${label} ID.`)
+  return Number(value)
 }
 
 function enforceRateLimit(request: IncomingMessage) {
@@ -414,14 +443,6 @@ function decodePathSegment(segment: string) {
   }
 }
 
-function documentKey(serviceName: string, termsType: string) {
-  return `${serviceName}\u0000${termsType}`
-}
-
-function encodePath(path: string) {
-  return path.split('/').map(encodeURIComponent).join('/')
-}
-
 function sendJson(response: ServerResponse, status: number, payload: unknown) {
   if (response.writableEnded) return
   const body = JSON.stringify(payload)
@@ -445,16 +466,16 @@ function serverError(message: string): ApiError {
   return Object.assign(new Error(message), { statusCode: 502 })
 }
 
-function shutdown() {
-  server.close(() => process.exit(0))
-}
-
 function normalizeError(error: unknown): ApiError {
   if (error instanceof Error) {
     const statusCode = 'statusCode' in error ? Number(error.statusCode) || 500 : 500
     return Object.assign(error, { statusCode })
   }
   return Object.assign(new Error('Unknown server error.'), { statusCode: 500 })
+}
+
+function shutdown() {
+  server.close(() => process.exit(0))
 }
 
 process.on('SIGINT', shutdown)
