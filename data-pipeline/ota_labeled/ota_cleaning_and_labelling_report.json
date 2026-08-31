@@ -1,0 +1,58 @@
+{
+  "source_rows": 3853,
+  "short_or_empty_rows_removed": 0,
+  "exact_duplicate_rows_removed": 77,
+  "clean_unique_rows": 3776,
+  "risk_distribution": {
+    "Low": 3456,
+    "Medium": 257,
+    "High": 63
+  },
+  "label_method_distribution": {
+    "default_low_unverified": 3415,
+    "explainable_rules": 356,
+    "tosdr_similarity": 5
+  },
+  "split_distribution": {
+    "train": {
+      "Low": 2409,
+      "Medium": 188,
+      "High": 48
+    },
+    "val": {
+      "Low": 535,
+      "Medium": 33,
+      "High": 6
+    },
+    "test": {
+      "Low": 512,
+      "Medium": 36,
+      "High": 9
+    }
+  },
+  "services_by_split": {
+    "train": [
+      "Amazon",
+      "Discord",
+      "Google",
+      "Instagram",
+      "Netflix",
+      "PayPal",
+      "Pinterest",
+      "TikTok",
+      "X (Twitter)",
+      "YouTube"
+    ],
+    "val": [
+      "Facebook",
+      "GitHub"
+    ],
+    "test": [
+      "Reddit",
+      "Steam",
+      "WhatsApp"
+    ]
+  },
+  "review_pack_rows": 500,
+  "warning": "Labels are AI-assisted weak labels. High-risk and low-confidence rows must be human-reviewed before being treated as ground truth."
+}
