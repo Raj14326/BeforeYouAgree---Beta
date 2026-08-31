@@ -1,20 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
-import {
-  ArrowRight,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  ExternalLink,
-  FileSearch,
-  FileText,
-  LoaderCircle,
-  Search,
-  ShieldCheck,
-  Sparkles,
-} from '@lucide/vue'
 
 type Term = {
   sourceUrl: string | null
@@ -78,8 +63,6 @@ const catalogueIsFallback = ref(false)
 const retrievingTerm = ref<string | null>(null)
 const retrievals = ref<Record<string, Retrieval>>({})
 const retrievalErrors = ref<Record<string, string>>({})
-const collapsedTerms = ref<Record<string, boolean>>({})
-const failedBrandIcons = ref<Record<string, boolean>>({})
 const openHistoryTerm = ref<string | null>(null)
 const versions = ref<Record<string, VersionOption[]>>({})
 const selectedVersions = ref<Record<string, string>>({})
@@ -87,30 +70,19 @@ const loadingHistoryTerm = ref<string | null>(null)
 const error = ref('')
 const isOpen = ref(false)
 const activeIndex = ref(-1)
-const searchInput = ref<HTMLInputElement | null>(null)
 const resultsSection = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const suggestions = computed(() => {
   const needle = query.value.trim().toLowerCase()
-  if (!needle) return services.value.slice(0, 7)
+  if (!needle) return services.value.slice(0, 10)
   return services.value
     .filter((service) => service.name.toLowerCase().includes(needle))
-    .sort((a, b) => {
-      const aStarts = a.name.toLowerCase().startsWith(needle) ? 0 : 1
-      const bStarts = b.name.toLowerCase().startsWith(needle) ? 0 : 1
-      return aStarts - bStarts || a.name.localeCompare(b.name)
-    })
-    .slice(0, 7)
+    .slice(0, 10)
 })
 
-const initials = computed(() =>
-  selectedService.value?.name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase(),
+const termEntries = computed(
+  () => Object.entries(selectedService.value?.terms ?? {}) as Array<[string, Term]>,
 )
 
 onMounted(loadCatalogue)
@@ -141,6 +113,23 @@ function handleInput() {
   searchTimer = setTimeout(() => searchServices(needle), 250)
 }
 
+function handleKeydown(event: KeyboardEvent) {
+  if (!isOpen.value || !suggestions.value.length) return
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    activeIndex.value = Math.min(activeIndex.value + 1, suggestions.value.length - 1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    activeIndex.value = Math.max(activeIndex.value - 1, 0)
+  } else if (event.key === 'Enter' && activeIndex.value >= 0) {
+    event.preventDefault()
+    const service = suggestions.value[activeIndex.value]
+    if (service) selectService(service)
+  } else if (event.key === 'Escape') {
+    isOpen.value = false
+  }
+}
+
 async function searchServices(needle: string) {
   try {
     const response = await fetch(apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`))
@@ -152,23 +141,6 @@ async function searchServices(needle: string) {
     }
   } catch {
     // Keep the last successful catalogue while upstream search is unavailable.
-  }
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (!isOpen.value && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) isOpen.value = true
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    activeIndex.value = Math.min(activeIndex.value + 1, suggestions.value.length - 1)
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    activeIndex.value = Math.max(activeIndex.value - 1, 0)
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    const service = suggestions.value[activeIndex.value] ?? suggestions.value[0]
-    if (service) selectService(service)
-  } else if (event.key === 'Escape') {
-    isOpen.value = false
   }
 }
 
@@ -184,11 +156,11 @@ async function submitSearch() {
 async function selectService(service: Service) {
   query.value = service.name
   isOpen.value = false
+  activeIndex.value = -1
   isServiceLoading.value = true
   selectedService.value = null
   retrievals.value = {}
   retrievalErrors.value = {}
-  collapsedTerms.value = {}
   openHistoryTerm.value = null
   versions.value = {}
   selectedVersions.value = {}
@@ -225,7 +197,6 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
     const payload = (await response.json()) as Retrieval | { error: string }
     if (!response.ok) throw new Error('error' in payload ? payload.error : 'Retrieval failed')
     retrievals.value[termType] = payload as Retrieval
-    collapsedTerms.value[termType] = false
   } catch (cause) {
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be retrieved.'
@@ -272,275 +243,185 @@ function formattedUpdatedAt(value: string | null) {
     timeStyle: 'short',
   }).format(new Date(value))
 }
-
-function sourceUrl(term: Term) {
-  return term.sourceUrl ?? ''
-}
-
-function brandIconUrl(serviceName: string) {
-  const aliases: Record<string, string> = {
-    'Twitter': 'x',
-    'Twitter (X)': 'x',
-    'Google Play': 'googleplay',
-    'Microsoft Teams': 'microsoftteams',
-    'YouTube': 'youtube',
-  }
-  const slug = aliases[serviceName] ?? serviceName.toLowerCase().replace(/[^a-z0-9]/g, '')
-  return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`
-}
-
-function markBrandIconFailed(serviceName: string) {
-  failedBrandIcons.value[serviceName] = true
-}
 </script>
 
 <template>
-  <div class="app-shell">
-    <header class="site-header">
-      <a class="brand" href="#" aria-label="Before You Agree home">
-        <span class="brand-mark"><Check :size="17" :stroke-width="3" /></span>
-        <span>Before You Agree</span>
-      </a>
-      <nav aria-label="Primary navigation">
-        <a href="#how-it-works">How it works</a>
-        <a href="#data-source">Data source</a>
-      </nav>
-      <span class="prototype-label">Prototype</span>
-    </header>
+  <div class="container my-4">
+    <h1>Before You Agree</h1>
+    <p>Find a digital service and read the terms and policies you are agreeing to.</p>
 
-    <main>
-      <section class="hero" aria-labelledby="page-title">
-        <div class="hero-grid" aria-hidden="true"></div>
-        <div class="hero-content">
-          <div class="eyebrow"><Sparkles :size="15" /> Terms, made readable</div>
-          <h1 id="page-title">Know what you’re agreeing to.</h1>
-          <p class="hero-copy">
-            Find a digital service and inspect the policies that shape your rights, data, and choices.
-          </p>
+    <form class="row g-2 align-items-end my-3" @submit.prevent="submitSearch">
+      <div class="col-sm-6 position-relative">
+        <label for="service" class="form-label">Service</label>
+        <input
+          id="service"
+          v-model="query"
+          class="form-control"
+          type="text"
+          autocomplete="off"
+          placeholder="e.g. Google, Spotify, Discord"
+          @input="handleInput"
+          @focus="isOpen = true"
+          @blur="isOpen = false"
+          @keydown="handleKeydown"
+        />
+        <ul
+          v-if="isOpen && suggestions.length"
+          class="list-group position-absolute w-100"
+          style="z-index: 1000; max-height: 260px; overflow-y: auto"
+        >
+          <li
+            v-for="(service, index) in suggestions"
+            :key="service.path"
+            class="list-group-item list-group-item-action"
+            :class="{ active: index === activeIndex }"
+            style="cursor: pointer"
+            @mousedown.prevent="selectService(service)"
+          >
+            {{ service.name }}
+          </li>
+        </ul>
+      </div>
+      <div class="col-sm-auto">
+        <button
+          type="submit"
+          class="btn btn-primary"
+          :disabled="isCatalogueLoading || isServiceLoading"
+        >
+          {{ isServiceLoading ? 'Retrieving...' : 'Review terms' }}
+        </button>
+      </div>
+    </form>
 
-          <form class="search-form" role="search" @submit.prevent="submitSearch">
-            <div class="combobox-wrap">
-              <Search class="search-icon" :size="22" aria-hidden="true" />
-              <input
-                ref="searchInput"
-                v-model="query"
-                type="search"
-                role="combobox"
-                aria-label="Search for a service"
-                aria-controls="service-suggestions"
-                :aria-expanded="isOpen"
-                :aria-activedescendant="activeIndex >= 0 ? `suggestion-${activeIndex}` : undefined"
-                autocomplete="off"
-                placeholder="Search Google, Spotify, Discord…"
-                @input="handleInput"
-                @focus="isOpen = true"
-                @keydown="handleKeydown"
-              />
-              <LoaderCircle v-if="isCatalogueLoading" class="input-loader" :size="20" />
+    <p v-if="isCatalogueLoading" class="text-muted">Loading service list...</p>
+    <p v-else class="text-muted">
+      <small>
+        {{ services.length }} services loaded from ToS;DR
+        <span v-if="catalogueIsFallback">(offline list)</span>
+      </small>
+    </p>
 
-              <ul
-                v-if="isOpen && !isCatalogueLoading && (query || suggestions.length)"
-                id="service-suggestions"
-                class="suggestions"
-                role="listbox"
-              >
-                <li v-if="query" class="suggestions-heading">Services</li>
-                <li
-                  v-for="(service, index) in suggestions"
-                  :id="`suggestion-${index}`"
-                  :key="service.path"
-                  role="option"
-                  :aria-selected="index === activeIndex"
-                  :class="{ active: index === activeIndex }"
-                  @mousedown.prevent="selectService(service)"
-                >
-                  <span class="service-avatar">
-                    <img
-                      v-if="!failedBrandIcons[service.name]"
-                      :src="brandIconUrl(service.name)"
-                      alt=""
-                      loading="lazy"
-                      @error="markBrandIconFailed(service.name)"
-                    />
-                    <span v-else>{{ service.name.slice(0, 1).toUpperCase() }}</span>
-                  </span>
-                  <span>{{ service.name }}</span>
-                  <ChevronRight :size="18" />
-                </li>
-                <li v-if="!suggestions.length" class="empty-suggestion">No tracked services found</li>
-              </ul>
-            </div>
-            <button type="submit" :disabled="isCatalogueLoading || isServiceLoading">
-              <span>{{ isServiceLoading ? 'Retrieving' : 'Review terms' }}</span>
-              <LoaderCircle v-if="isServiceLoading" class="spin" :size="19" />
-              <ArrowRight v-else :size="19" />
-            </button>
-          </form>
-          <p class="search-meta">
-            <ShieldCheck :size="15" />
-            {{ services.length.toLocaleString() }} services loaded from ToS;DR
-            <span v-if="catalogueIsFallback">· limited offline catalogue</span>
-          </p>
-          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-        </div>
-      </section>
+    <div v-if="error" class="alert alert-warning">{{ error }}</div>
 
-      <section v-if="selectedService" ref="resultsSection" class="results-section">
-        <div class="results-inner">
-          <div class="service-heading">
-            <span class="selected-avatar">
-              <img
-                v-if="!failedBrandIcons[selectedService.name]"
-                :src="brandIconUrl(selectedService.name)"
-                alt=""
-                @error="markBrandIconFailed(selectedService.name)"
-              />
-              <span v-else>{{ initials }}</span>
-            </span>
-            <div>
-              <span class="section-kicker">Available documents</span>
-              <h2>{{ selectedService.name }}</h2>
-            </div>
-            <span class="tracked-badge"><span></span> Tracked</span>
-          </div>
+    <div v-if="selectedService" ref="resultsSection">
+      <hr />
+      <h2>{{ selectedService.name }}</h2>
 
-          <div class="document-list">
-            <article
-              v-for="(term, termType) in selectedService.terms"
-              :key="termType"
-              :class="{ expanded: retrievals[termType as string] }"
-            >
-              <span class="document-icon"><FileText :size="21" /></span>
-              <div class="document-info">
-                <h3>{{ termType }}</h3>
-                <p>Current version updated {{ formattedUpdatedAt(term.updatedAt) }}.</p>
-              </div>
-              <div class="document-actions">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Document</th>
+            <th>Last updated</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template v-for="[termType, term] in termEntries" :key="termType">
+            <tr>
+              <td>{{ termType }}</td>
+              <td>{{ formattedUpdatedAt(term.updatedAt) }}</td>
+              <td>
                 <button
                   type="button"
+                  class="btn btn-sm btn-outline-primary"
                   :disabled="Boolean(retrievingTerm) || !term.available"
-                  @click="retrieveTerm(termType as string)"
+                  @click="retrieveTerm(termType)"
                 >
-                  <LoaderCircle
-                    v-if="retrievingTerm === termType"
-                    class="spin"
-                    :size="15"
-                  />
-                  <FileSearch v-else :size="15" />
                   {{
                     !term.available
                       ? 'Not archived'
-                      : retrievals[termType as string]
-                        ? 'Refresh text'
-                        : 'Retrieve text'
+                      : retrievingTerm === termType
+                        ? 'Loading...'
+                        : retrievals[termType]
+                          ? 'Refresh text'
+                          : 'Retrieve text'
                   }}
                 </button>
-                <div v-if="term.historyAvailable" class="history-control">
+                <button
+                  v-if="term.historyAvailable"
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary ms-1"
+                  @click="toggleHistory(termType)"
+                >
+                  History
+                </button>
+                <a
+                  v-if="term.sourceUrl"
+                  :href="term.sourceUrl"
+                  target="_blank"
+                  rel="noreferrer"
+                  class="ms-2"
+                >
+                  Source
+                </a>
+              </td>
+            </tr>
+
+            <tr v-if="openHistoryTerm === termType">
+              <td colspan="3">
+                <label class="form-label mb-1">Older versions</label>
+                <div class="d-flex gap-2">
+                  <select
+                    v-model="selectedVersions[termType]"
+                    class="form-select form-select-sm"
+                    style="max-width: 320px"
+                    :disabled="loadingHistoryTerm === termType"
+                  >
+                    <option value="" disabled>
+                      {{ loadingHistoryTerm === termType ? 'Loading dates...' : 'Select a date' }}
+                    </option>
+                    <option
+                      v-for="version in versions[termType] || []"
+                      :key="version.id"
+                      :value="version.url"
+                    >
+                      {{ version.label }}
+                    </option>
+                  </select>
                   <button
                     type="button"
-                    class="history-toggle"
-                    :aria-expanded="openHistoryTerm === termType"
-                    :aria-label="`Choose a historical version of ${termType}`"
-                    title="Choose a historical version"
-                    @click="toggleHistory(termType as string)"
+                    class="btn btn-sm btn-primary"
+                    :disabled="!selectedVersions[termType] || Boolean(retrievingTerm)"
+                    @click="retrieveSelectedVersion(termType)"
                   >
-                    <LoaderCircle
-                      v-if="loadingHistoryTerm === termType"
-                      class="spin"
-                      :size="15"
-                    />
-                    <CalendarDays v-else :size="16" />
+                    Retrieve
                   </button>
-                  <div v-if="openHistoryTerm === termType" class="history-menu">
-                    <span>Available update dates</span>
-                    <div class="history-fields">
-                      <select
-                        v-model="selectedVersions[termType as string]"
-                        :aria-label="`Version date for ${termType}`"
-                        :disabled="loadingHistoryTerm === termType"
-                      >
-                        <option value="" disabled>
-                          {{ loadingHistoryTerm === termType ? 'Loading dates…' : 'Select a date' }}
-                        </option>
-                        <option
-                          v-for="version in versions[termType as string] || []"
-                          :key="version.id"
-                          :value="version.url"
-                        >
-                          {{ version.label }}
-                        </option>
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      class="history-submit"
-                      :disabled="!selectedVersions[termType as string] || Boolean(retrievingTerm)"
-                      @click="retrieveSelectedVersion(termType as string)"
-                    >
-                      Retrieve selected version
-                    </button>
-                  </div>
                 </div>
-                <a v-if="sourceUrl(term)" :href="sourceUrl(term)" target="_blank" rel="noreferrer">
-                  Source <ExternalLink :size="15" />
-                </a>
-              </div>
-              <p v-if="retrievalErrors[termType as string]" class="retrieval-error" role="alert">
-                {{ retrievalErrors[termType as string] }}
-              </p>
-              <div
-                v-if="retrievals[termType as string]"
-                class="terms-preview"
-                :class="{ collapsed: collapsedTerms[termType as string] }"
-              >
-                <div class="terms-preview-header">
-                  <span>Plain text</span>
-                  <div>
-                    <span>
-                      {{ retrievals[termType as string]!.characterCount.toLocaleString() }} characters
-                      · {{ retrievals[termType as string]!.repository }}
-                    </span>
-                    <button
-                      type="button"
-                      :aria-label="collapsedTerms[termType as string] ? 'Expand terms' : 'Collapse terms'"
-                      :title="collapsedTerms[termType as string] ? 'Expand terms' : 'Collapse terms'"
-                      @click="collapsedTerms[termType as string] = !collapsedTerms[termType as string]"
-                    >
-                      <ChevronDown v-if="collapsedTerms[termType as string]" :size="17" />
-                      <ChevronUp v-else :size="17" />
-                    </button>
-                  </div>
-                </div>
-                <pre v-show="!collapsedTerms[termType as string]">{{ retrievals[termType as string]!.content }}</pre>
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
+              </td>
+            </tr>
 
-      <section id="how-it-works" class="process-section">
-        <div class="process-intro">
-          <span class="section-kicker">How it works</span>
-          <h2>A clearer path through the fine print.</h2>
-        </div>
-        <div class="steps">
-          <div><span>01</span><h3>Find a service</h3><p>Search the public catalogue of tracked digital services.</p></div>
-          <div><span>02</span><h3>Retrieve its terms</h3><p>Open current policies and independently archived versions.</p></div>
-          <div><span>03</span><h3>Understand the risk</h3><p>Automated clause analysis will be added in the next phase.</p></div>
-        </div>
-      </section>
-    </main>
+            <tr v-if="retrievalErrors[termType]">
+              <td colspan="3" class="text-danger">{{ retrievalErrors[termType] }}</td>
+            </tr>
 
-    <footer id="data-source">
-      <div class="brand footer-brand">
-        <span class="brand-mark"><Check :size="15" :stroke-width="3" /></span>
-        <span>Before You Agree</span>
-      </div>
-      <p>
-        Terms data provided by
-        <a href="https://tosdr.org" target="_blank" rel="noreferrer">ToS;DR</a>.
-      </p>
-      <p>Informational only, not legal advice.</p>
-    </footer>
+            <tr v-if="retrievals[termType]">
+              <td colspan="3">
+                <p class="text-muted mb-1">
+                  <small>
+                    {{ retrievals[termType]?.characterCount.toLocaleString() }} characters -
+                    {{ retrievals[termType]?.repository }}
+                  </small>
+                </p>
+                <pre
+                  class="border p-2 bg-light"
+                  style="max-height: 400px; overflow: auto; white-space: pre-wrap"
+                >{{ retrievals[termType]?.content }}</pre>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <hr />
+    <h2>How it works</h2>
+    <ol>
+      <li>Search the public catalogue of tracked digital services.</li>
+      <li>Retrieve the current policy text, or pick an archived older version.</li>
+      <li>Automated clause analysis will be added in a later phase.</li>
+    </ol>
+
+    <hr />
+    
   </div>
 </template>
