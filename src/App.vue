@@ -132,7 +132,9 @@ function handleKeydown(event: KeyboardEvent) {
 
 async function searchServices(needle: string) {
   try {
-    const response = await fetch(apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`))
+    const response = await fetch(
+      apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`),
+    )
     if (!response.ok) return
     const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
     if (query.value.trim() === needle) {
@@ -246,182 +248,217 @@ function formattedUpdatedAt(value: string | null) {
 </script>
 
 <template>
-  <div class="container my-4">
-    <h1>Before You Agree</h1>
-    <p>Find a digital service and read the terms and policies you are agreeing to.</p>
+  <header class="border-bottom bg-white">
+    <div class="container app-shell py-3 d-flex align-items-center gap-2">
+      <i class="bi bi-shield-check fs-4 text-primary"></i>
+      <span class="fw-semibold">Before You Agree</span>
+    </div>
+  </header>
 
-    <form class="row g-2 align-items-end my-3" @submit.prevent="submitSearch">
-      <div class="col-sm-6 position-relative">
-        <label for="service" class="form-label">Service</label>
-        <input
-          id="service"
-          v-model="query"
-          class="form-control"
-          type="text"
-          autocomplete="off"
-          placeholder="e.g. Google, Spotify, Discord"
-          @input="handleInput"
-          @focus="isOpen = true"
-          @blur="isOpen = false"
-          @keydown="handleKeydown"
-        />
-        <ul
-          v-if="isOpen && suggestions.length"
-          class="list-group position-absolute w-100"
-          style="z-index: 1000; max-height: 260px; overflow-y: auto"
-        >
-          <li
-            v-for="(service, index) in suggestions"
-            :key="service.path"
-            class="list-group-item list-group-item-action"
-            :class="{ active: index === activeIndex }"
-            style="cursor: pointer"
-            @mousedown.prevent="selectService(service)"
+  <main class="container app-shell my-4 my-md-5">
+    <div class="mb-4">
+      <h1 class="h3 fw-bold">Read what you're agreeing to</h1>
+      <p class="text-body-secondary mb-0">
+        Find a digital service and review the terms and policies behind it.
+      </p>
+    </div>
+
+    <form class="card card-body shadow-sm mb-4" @submit.prevent="submitSearch">
+      <label for="service" class="form-label fw-medium">Service</label>
+      <div class="row g-2">
+        <div class="col position-relative">
+          <div class="input-group input-group-lg">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input
+              id="service"
+              v-model="query"
+              class="form-control"
+              type="text"
+              autocomplete="off"
+              placeholder="e.g. Google, Spotify, Discord"
+              @input="handleInput"
+              @focus="isOpen = true"
+              @blur="isOpen = false"
+              @keydown="handleKeydown"
+            />
+          </div>
+          <ul
+            v-if="isOpen && suggestions.length"
+            class="list-group position-absolute w-100 mt-1 shadow"
+            style="z-index: 1000; max-height: 260px; overflow-y: auto"
           >
-            {{ service.name }}
-          </li>
-        </ul>
+            <li
+              v-for="(service, index) in suggestions"
+              :key="service.path"
+              class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+              :class="{ active: index === activeIndex }"
+              style="cursor: pointer"
+              @mousedown.prevent="selectService(service)"
+            >
+              <i class="bi bi-file-earmark-text text-body-secondary"></i>
+              {{ service.name }}
+            </li>
+          </ul>
+        </div>
+        <div class="col-auto">
+          <button
+            type="submit"
+            class="btn btn-primary btn-lg"
+            :disabled="isCatalogueLoading || isServiceLoading"
+          >
+            <span v-if="isServiceLoading" class="spinner-border spinner-border-sm me-1"></span>
+            {{ isServiceLoading ? 'Retrieving…' : 'Review terms' }}
+          </button>
+        </div>
       </div>
-      <div class="col-sm-auto">
-        <button
-          type="submit"
-          class="btn btn-primary"
-          :disabled="isCatalogueLoading || isServiceLoading"
-        >
-          {{ isServiceLoading ? 'Retrieving...' : 'Review terms' }}
-        </button>
-      </div>
+
+      <p class="form-text mb-0 mt-2">
+        <span v-if="isCatalogueLoading">
+          <span class="spinner-border spinner-border-sm"></span> Loading service list…
+        </span>
+        <span v-else>
+          {{ services.length }} services from ToS;DR
+          <span v-if="catalogueIsFallback" class="badge text-bg-secondary ms-1">offline list</span>
+        </span>
+      </p>
     </form>
 
-    <p v-if="isCatalogueLoading" class="text-muted">Loading service list...</p>
-    <p v-else class="text-muted">
-      <small>
-        {{ services.length }} services loaded from ToS;DR
-        <span v-if="catalogueIsFallback">(offline list)</span>
-      </small>
-    </p>
+    <div v-if="error" class="alert alert-warning" role="alert">{{ error }}</div>
 
-    <div v-if="error" class="alert alert-warning">{{ error }}</div>
+    <section v-if="selectedService" ref="resultsSection" class="card shadow-sm">
+      <div class="card-header bg-white d-flex align-items-center justify-content-between">
+        <h2 class="h5 mb-0">{{ selectedService.name }}</h2>
+        <span class="badge rounded-pill text-bg-light"> {{ termEntries.length }} documents </span>
+      </div>
 
-    <div v-if="selectedService" ref="resultsSection">
-      <hr />
-      <h2>{{ selectedService.name }}</h2>
-
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Document</th>
-            <th>Last updated</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="[termType, term] in termEntries" :key="termType">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
             <tr>
-              <td>{{ termType }}</td>
-              <td>{{ formattedUpdatedAt(term.updatedAt) }}</td>
-              <td>
-                <button
-                  type="button"
-                  class="btn btn-sm btn-outline-primary"
-                  :disabled="Boolean(retrievingTerm) || !term.available"
-                  @click="retrieveTerm(termType)"
-                >
-                  {{
-                    !term.available
-                      ? 'Not archived'
-                      : retrievingTerm === termType
-                        ? 'Loading...'
-                        : retrievals[termType]
-                          ? 'Refresh text'
-                          : 'Retrieve text'
-                  }}
-                </button>
-                <button
-                  v-if="term.historyAvailable"
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary ms-1"
-                  @click="toggleHistory(termType)"
-                >
-                  History
-                </button>
-                <a
-                  v-if="term.sourceUrl"
-                  :href="term.sourceUrl"
-                  target="_blank"
-                  rel="noreferrer"
-                  class="ms-2"
-                >
-                  Source
-                </a>
-              </td>
+              <th>Document</th>
+              <th>Last updated</th>
+              <th class="text-end">Actions</th>
             </tr>
-
-            <tr v-if="openHistoryTerm === termType">
-              <td colspan="3">
-                <label class="form-label mb-1">Older versions</label>
-                <div class="d-flex gap-2">
-                  <select
-                    v-model="selectedVersions[termType]"
-                    class="form-select form-select-sm"
-                    style="max-width: 320px"
-                    :disabled="loadingHistoryTerm === termType"
-                  >
-                    <option value="" disabled>
-                      {{ loadingHistoryTerm === termType ? 'Loading dates...' : 'Select a date' }}
-                    </option>
-                    <option
-                      v-for="version in versions[termType] || []"
-                      :key="version.id"
-                      :value="version.url"
-                    >
-                      {{ version.label }}
-                    </option>
-                  </select>
+          </thead>
+          <tbody>
+            <template v-for="[termType, term] in termEntries" :key="termType">
+              <tr>
+                <td class="fw-medium text-capitalize">{{ termType.replace(/_/g, ' ') }}</td>
+                <td class="text-body-secondary">
+                  <span v-if="term.available">{{ formattedUpdatedAt(term.updatedAt) }}</span>
+                  <span v-else class="badge text-bg-light">Not archived</span>
+                </td>
+                <td class="text-end text-nowrap">
                   <button
                     type="button"
                     class="btn btn-sm btn-primary"
-                    :disabled="!selectedVersions[termType] || Boolean(retrievingTerm)"
-                    @click="retrieveSelectedVersion(termType)"
+                    :disabled="Boolean(retrievingTerm) || !term.available"
+                    @click="retrieveTerm(termType)"
                   >
-                    Retrieve
+                    <span
+                      v-if="retrievingTerm === termType"
+                      class="spinner-border spinner-border-sm"
+                    ></span>
+                    <template v-else>{{
+                      retrievals[termType] ? 'Refresh' : 'Retrieve text'
+                    }}</template>
                   </button>
-                </div>
-              </td>
-            </tr>
 
-            <tr v-if="retrievalErrors[termType]">
-              <td colspan="3" class="text-danger">{{ retrievalErrors[termType] }}</td>
-            </tr>
+                  <button
+                    v-if="term.historyAvailable"
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary ms-1"
+                    @click="toggleHistory(termType)"
+                  >
+                    <i class="bi bi-clock-history"></i>
+                  </button>
 
-            <tr v-if="retrievals[termType]">
-              <td colspan="3">
-                <p class="text-muted mb-1">
-                  <small>
-                    {{ retrievals[termType]?.characterCount.toLocaleString() }} characters -
-                    {{ retrievals[termType]?.repository }}
-                  </small>
-                </p>
-                <pre
-                  class="border p-2 bg-light"
-                  style="max-height: 400px; overflow: auto; white-space: pre-wrap"
-                >{{ retrievals[termType]?.content }}</pre>
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
+                  <a
+                    v-if="term.sourceUrl"
+                    :href="term.sourceUrl"
+                    target="_blank"
+                    rel="noreferrer"
+                    class="btn btn-sm btn-link"
+                  >
+                    Source <i class="bi bi-box-arrow-up-right small"></i>
+                  </a>
+                </td>
+              </tr>
 
-    <hr />
-    <h2>How it works</h2>
-    <ol>
-      <li>Search the public catalogue of tracked digital services.</li>
-      <li>Retrieve the current policy text, or pick an archived older version.</li>
-      <li>Automated clause analysis will be added in a later phase.</li>
-    </ol>
+              <tr v-if="openHistoryTerm === termType" class="table-active">
+                <td colspan="3">
+                  <div class="d-flex flex-wrap align-items-end gap-2">
+                    <div>
+                      <label class="form-label mb-1">Older versions</label>
+                      <select
+                        v-model="selectedVersions[termType]"
+                        class="form-select form-select-sm"
+                        style="min-width: 260px"
+                        :disabled="loadingHistoryTerm === termType"
+                      >
+                        <option value="" disabled>
+                          {{ loadingHistoryTerm === termType ? 'Loading dates…' : 'Select a date' }}
+                        </option>
+                        <option
+                          v-for="version in versions[termType] || []"
+                          :key="version.id"
+                          :value="version.url"
+                        >
+                          {{ version.label }}
+                        </option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-primary"
+                      :disabled="!selectedVersions[termType] || Boolean(retrievingTerm)"
+                      @click="retrieveSelectedVersion(termType)"
+                    >
+                      Retrieve
+                    </button>
+                  </div>
+                </td>
+              </tr>
 
-    <hr />
-    
-  </div>
+              <tr v-if="retrievalErrors[termType]">
+                <td colspan="3">
+                  <div
+                    class="alert alert-danger d-flex align-items-center gap-2 mb-0 py-2"
+                    role="alert"
+                  >
+                    <i class="bi bi-exclamation-triangle-fill"></i>
+                    {{ retrievalErrors[termType] }}
+                  </div>
+                </td>
+              </tr>
+
+              <tr v-if="retrievals[termType]">
+                <td colspan="3">
+                  <div class="d-flex justify-content-between text-body-secondary small mb-1">
+                    <span
+                      >{{ retrievals[termType]?.characterCount.toLocaleString() }} characters</span
+                    >
+                    <span>{{ retrievals[termType]?.repository }}</span>
+                  </div>
+                  <pre
+                    class="border rounded bg-body-tertiary p-3 mb-0"
+                    style="max-height: 420px; overflow: auto; white-space: pre-wrap"
+                    >{{ retrievals[termType]?.content }}</pre>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="mt-4">
+      <h2 class="h5 fw-bold">How it works</h2>
+      <ol class="text-body-secondary ps-3 mb-0">
+        <li class="mb-1">Search the public catalogue of tracked digital services.</li>
+        <li class="mb-1">Retrieve the current policy text, or pick an archived older version.</li>
+        <li>Automated clause analysis will be added in a later phase.</li>
+      </ol>
+    </section>
+  </main>
 </template>

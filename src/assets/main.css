@@ -1,3 +1,16 @@
+:root {
+  --bs-body-bg: #f8f9fa;
+  --bs-border-radius: 0.5rem;
+}
+
+body {
+  min-height: 100vh;
+}
+
+.app-shell {
+  max-width: 820px; /* keeps text lines readable */
+}
+
 pre {
   font-size: 0.85rem;
 }
