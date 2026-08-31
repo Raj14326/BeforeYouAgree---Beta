@@ -1,0 +1,7 @@
+﻿model_id,service_name,document_type,clause_count,predicted_risky_clause_count,high_risk_clause_count,medium_risk_clause_count,overall_risk_score,overall_risk_level,risk_categories_detected
+M006,Reddit,privacy_policy,16,16,16,0,92.5,High,account_control|data_sharing|liability_dispute|tracking
+M006,Reddit,terms_of_service,11,6,6,0,59.05,Medium,account_control|content_license|data_sharing|liability_dispute
+M006,Steam,privacy_policy,13,12,12,0,85.21,High,data_sharing|liability_dispute|tracking
+M006,Steam,terms_of_service,10,9,9,0,85.31,High,billing_refund|data_sharing|liability_dispute
+M006,WhatsApp,privacy_policy,13,13,13,0,87.57,High,data_sharing
+M006,WhatsApp,terms_of_service,7,6,6,0,83.61,High,account_control|content_license|data_sharing|liability_dispute
