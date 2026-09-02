@@ -14,3 +14,8 @@ body {
 pre {
   font-size: 0.85rem;
 }
+
+.risk-findings {
+  max-height: 360px;
+  overflow-y: auto;
+}

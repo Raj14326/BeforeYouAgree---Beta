@@ -11,6 +11,11 @@ npm install
 npm run dev:full
 ```
 
+Risk analysis runs directly in the Node API using Leo's M006 character n-gram Naive Bayes
+model and its risk-category rules. No separate Python or BERT service is required. Set
+`LEO_MODEL_PATH` only when the M006 JSON model is stored somewhere other than
+`ml/M006_best_model_package/M006_model.json`.
+
 Open `http://localhost:5173`. The Vue app runs on port `5173`, and the local API runs on `127.0.0.1:8787`.
 
 Run the two processes separately when debugging:

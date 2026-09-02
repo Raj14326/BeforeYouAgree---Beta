@@ -24,6 +24,19 @@ type Retrieval = {
   repository: string
   repositoryUrl: string
 }
+type RiskFinding = {
+  text: string
+  riskProbability: number
+  predictedLabel: 'risky' | 'not_risky'
+}
+type Analysis = {
+  model: string
+  threshold: number
+  clauseCount: number
+  riskyClauseCount: number
+  overallRiskScore: number
+  findings: RiskFinding[]
+}
 
 const FALLBACK_SERVICES: Service[] = [
   'Amazon',
@@ -63,6 +76,10 @@ const catalogueIsFallback = ref(false)
 const retrievingTerm = ref<string | null>(null)
 const retrievals = ref<Record<string, Retrieval>>({})
 const retrievalErrors = ref<Record<string, string>>({})
+const analyses = ref<Record<string, Analysis>>({})
+const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
+const analysisErrors = ref<Record<string, string>>({})
+const analysingTerm = ref<string | null>(null)
 const openHistoryTerm = ref<string | null>(null)
 const versions = ref<Record<string, VersionOption[]>>({})
 const selectedVersions = ref<Record<string, string>>({})
@@ -163,6 +180,9 @@ async function selectService(service: Service) {
   selectedService.value = null
   retrievals.value = {}
   retrievalErrors.value = {}
+  analyses.value = {}
+  findingFilters.value = {}
+  analysisErrors.value = {}
   openHistoryTerm.value = null
   versions.value = {}
   selectedVersions.value = {}
@@ -199,12 +219,63 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
     const payload = (await response.json()) as Retrieval | { error: string }
     if (!response.ok) throw new Error('error' in payload ? payload.error : 'Retrieval failed')
     retrievals.value[termType] = payload as Retrieval
+    delete analyses.value[termType]
+    delete findingFilters.value[termType]
+    analysisErrors.value[termType] = ''
   } catch (cause) {
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be retrieved.'
   } finally {
     retrievingTerm.value = null
   }
+}
+
+async function analyseTerm(termType: string) {
+  const retrieval = retrievals.value[termType]
+  if (!retrieval || analysingTerm.value) return
+  analysingTerm.value = termType
+  analysisErrors.value[termType] = ''
+  try {
+    const response = await fetch(apiUrl('/api/analyze'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: retrieval.content,
+        serviceName: selectedService.value?.name,
+        documentType: termType,
+      }),
+    })
+    const payload = (await response.json()) as Analysis | { error?: string }
+    if (!response.ok)
+      throw new Error('error' in payload && payload.error ? payload.error : 'Analysis failed.')
+    analyses.value[termType] = payload as Analysis
+    findingFilters.value[termType] = 'risky'
+  } catch (cause) {
+    analysisErrors.value[termType] =
+      cause instanceof Error ? cause.message : 'The document could not be analysed.'
+  } finally {
+    analysingTerm.value = null
+  }
+}
+
+function visibleFindings(termType: string) {
+  const filter = findingFilters.value[termType] ?? 'risky'
+  return (
+    analyses.value[termType]?.findings.filter((finding) => finding.predictedLabel === filter) ?? []
+  )
+}
+
+function labelCount(termType: string, label: RiskFinding['predictedLabel']) {
+  return (
+    analyses.value[termType]?.findings.filter((finding) => finding.predictedLabel === label)
+      .length ?? 0
+  )
+}
+
+function confidencePercent(finding: RiskFinding) {
+  const probability =
+    finding.predictedLabel === 'risky' ? finding.riskProbability : 1 - finding.riskProbability
+  return Math.round(probability * 100)
 }
 
 async function toggleHistory(termType: string) {
@@ -440,6 +511,84 @@ function formattedUpdatedAt(value: string | null) {
                     >
                     <span>{{ retrievals[termType]?.repository }}</span>
                   </div>
+                  <div class="d-flex align-items-center gap-2 mb-2">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-danger"
+                      :disabled="Boolean(analysingTerm)"
+                      @click="analyseTerm(termType)"
+                    >
+                      <span
+                        v-if="analysingTerm === termType"
+                        class="spinner-border spinner-border-sm me-1"
+                      ></span>
+                      {{
+                        analysingTerm === termType
+                          ? 'Analysing…'
+                          : analyses[termType]
+                            ? 'Analyse again'
+                            : 'Analyse risks'
+                      }}
+                    </button>
+                    <span class="small text-body-secondary">Uses Leo's M006 risk model</span>
+                  </div>
+                  <div v-if="analysisErrors[termType]" class="alert alert-danger py-2">
+                    {{ analysisErrors[termType] }}
+                  </div>
+                  <div v-if="analyses[termType]" class="border rounded p-3 mb-2 bg-white">
+                    <div
+                      class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"
+                    >
+                      <h3 class="h6 mb-0">Risk analysis</h3>
+                      <div class="d-flex align-items-center gap-2">
+                        <label
+                          :for="`finding-filter-${termType}`"
+                          class="small text-body-secondary"
+                        >
+                          View
+                        </label>
+                        <select
+                          :id="`finding-filter-${termType}`"
+                          v-model="findingFilters[termType]"
+                          class="form-select form-select-sm"
+                          style="width: auto"
+                        >
+                          <option value="risky">Risky ({{ labelCount(termType, 'risky') }})</option>
+                          <option value="not_risky">
+                            Not risky ({{ labelCount(termType, 'not_risky') }})
+                          </option>
+                        </select>
+                      </div>
+                    </div>
+                    <div v-if="!visibleFindings(termType).length" class="text-body-secondary small">
+                      No clauses have this label.
+                    </div>
+                    <div v-else class="risk-findings">
+                      <article
+                        v-for="(finding, findingIndex) in visibleFindings(termType)"
+                        :key="`${finding.text}-${findingIndex}`"
+                        class="border rounded p-2 mb-2"
+                      >
+                        <div class="d-flex flex-wrap gap-2 mb-1">
+                          <span
+                            class="badge"
+                            :class="
+                              finding.predictedLabel === 'risky'
+                                ? 'text-bg-danger'
+                                : 'text-bg-success'
+                            "
+                          >
+                            {{ finding.predictedLabel === 'risky' ? 'Risky' : 'Not risky' }} ·
+                            {{ confidencePercent(finding) }}% confidence
+                          </span>
+                        </div>
+                        <p class="mb-0 small">{{ finding.text }}</p>
+                      </article>
+                    </div>
+                    <p class="text-body-secondary small mb-0 mt-2">
+                      Automated prediction; not legal advice.
+                    </p>
+                  </div>
                   <pre
                     class="border rounded bg-body-tertiary p-3 mb-0"
                     style="max-height: 420px; overflow: auto; white-space: pre-wrap"
@@ -457,7 +606,7 @@ function formattedUpdatedAt(value: string | null) {
       <ol class="text-body-secondary ps-3 mb-0">
         <li class="mb-1">Search the public catalogue of tracked digital services.</li>
         <li class="mb-1">Retrieve the current policy text, or pick an archived older version.</li>
-        <li>Automated clause analysis will be added in a later phase.</li>
+        <li>Analyse the retrieved text for Low, Medium, and High risk clauses.</li>
       </ol>
     </section>
   </main>

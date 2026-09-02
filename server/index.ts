@@ -2,6 +2,7 @@ import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { htmlToPlainText } from './html-to-plain-text.ts'
+import { analyzeWithM006 } from './m006-model.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -45,7 +46,16 @@ const server = http.createServer(async (request, response) => {
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
     if (request.method === 'GET' && url.pathname === '/api/health') {
-      return sendJson(response, 200, { status: 'ok', source: 'tosdr', upstream: TOSDR_API })
+      return sendJson(response, 200, {
+        status: 'ok',
+        source: 'tosdr',
+        upstream: TOSDR_API,
+        model: "Leo's M006 Naive Bayes classifier",
+      })
+    }
+    if (request.method === 'POST' && url.pathname === '/api/analyze') {
+      enforceRateLimit(request)
+      return await analyzeDocument(request, response)
     }
     if (request.method !== 'GET') {
       return sendJson(response, 405, { error: 'Only GET requests are supported.' })
@@ -78,13 +88,46 @@ const server = http.createServer(async (request, response) => {
     const apiError = normalizeError(error)
     if (apiError.statusCode >= 500) console.error(apiError)
     return sendJson(response, apiError.statusCode, {
-      error:
-        apiError.statusCode >= 500
-          ? 'ToS;DR data could not be retrieved right now.'
-          : apiError.message,
+      error: apiError.message,
     })
   }
 })
+
+async function analyzeDocument(request: IncomingMessage, response: ServerResponse) {
+  const body = await readJsonBody(request)
+  const content = typeof body.content === 'string' ? body.content.trim() : ''
+  if (!content) return sendJson(response, 400, { error: 'Document content is required.' })
+  if (content.length > 500_000)
+    return sendJson(response, 413, { error: 'Document is too large to analyze.' })
+  return sendJson(
+    response,
+    200,
+    analyzeWithM006(
+      content,
+      typeof body.serviceName === 'string' ? body.serviceName : '',
+      typeof body.documentType === 'string' ? body.documentType : '',
+    ),
+  )
+}
+
+function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolveBody, reject) => {
+    let raw = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => {
+      raw += chunk
+      if (raw.length > 510_000) request.destroy(clientError(413, 'Request body is too large.'))
+    })
+    request.on('end', () => {
+      try {
+        resolveBody(JSON.parse(raw || '{}') as Record<string, unknown>)
+      } catch {
+        reject(clientError(400, 'Request body must be valid JSON.'))
+      }
+    })
+    request.on('error', reject)
+  })
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`Before You Agree ToS;DR API listening on http://${HOST}:${PORT}`)
@@ -158,8 +201,9 @@ async function listVersions(
 ) {
   const { archivedDocument } = await resolveArchivedDocument(serviceId, documentId)
   const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 100)
+  const archivePath = encodeURIComponent(archivedDocument.path)
   const commits = await githubJson<GitHubCommit[]>(
-    `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits?path=${encodeURIComponent(archivedDocument.path)}&per_page=${limit}`,
+    `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits?path=${archivePath}&per_page=${limit}`,
     5 * 60 * 1000,
   )
   const data = commits.map((commit) => ({
@@ -179,7 +223,10 @@ async function getArchivedVersion(
   response: ServerResponse,
 ) {
   if (!/^[a-f0-9]{40}$/i.test(revision)) throw clientError(400, 'Invalid version ID.')
-  const { service, document, archivedDocument } = await resolveArchivedDocument(serviceId, documentId)
+  const { service, document, archivedDocument } = await resolveArchivedDocument(
+    serviceId,
+    documentId,
+  )
   const commit = await githubJson<GitHubCommit>(
     `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits/${revision}`,
     5 * 60 * 1000,
@@ -189,6 +236,7 @@ async function getArchivedVersion(
   }
   const content = await archiveText(revision, archivedDocument.path)
   const fetchDate = commit.commit.committer?.date || commit.commit.author?.date || null
+  const repositoryPath = encodePath(archivedDocument.path)
   return sendJson(response, 200, {
     format: 'plain_text',
     id: revision,
@@ -199,7 +247,7 @@ async function getArchivedVersion(
     characterCount: content.length,
     sourceUrl: document.url || null,
     repository: `${ARCHIVE_OWNER}/${ARCHIVE_REPO}`,
-    repositoryUrl: `https://github.com/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/blob/${revision}/${encodePath(archivedDocument.path)}`,
+    repositoryUrl: `https://github.com/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/blob/${revision}/${repositoryPath}`,
   })
 }
 
@@ -209,8 +257,13 @@ async function resolveArchivedDocument(serviceId: string, documentId: string) {
   const service = await tosdrJson<Service>(`/service/v3?id=${serviceNumber}`, CACHE_TTL_MS)
   const document = service.documents?.find((item) => item.id === documentNumber)
   if (!document) throw clientError(404, 'Terms document not found for this service.')
-  const archivedDocument = findArchivedDocument(await getArchiveIndex(), service.name, document.name)
-  if (!archivedDocument) throw clientError(404, 'No historical versions are available for this document.')
+  const archivedDocument = findArchivedDocument(
+    await getArchiveIndex(),
+    service.name,
+    document.name,
+  )
+  if (!archivedDocument)
+    throw clientError(404, 'No historical versions are available for this document.')
   return { service, document, archivedDocument }
 }
 
@@ -262,9 +315,7 @@ async function getArchiveIndex(): Promise<ArchivedDocument[]> {
     if (tree.truncated) throw serverError('The historical archive index was truncated.')
     return tree.tree.flatMap((item) => {
       const match = item.type === 'blob' ? item.path.match(/^([^/]+)\/(.+)\.md$/) : null
-      return match
-        ? [{ serviceName: match[1], termsType: match[2], path: item.path }]
-        : []
+      return match ? [{ serviceName: match[1], termsType: match[2], path: item.path }] : []
     })
   })
 }
@@ -324,7 +375,8 @@ function githubHeaders(): Record<string, string> {
 }
 
 function githubError(response: Response): ApiError {
-  if (response.status === 404) return clientError(404, 'The requested historical version was not found.')
+  if (response.status === 404)
+    return clientError(404, 'The requested historical version was not found.')
   if (response.status === 403 || response.status === 429) {
     return clientError(503, 'Historical archive rate limit reached. Try again later.')
   }
@@ -355,7 +407,8 @@ async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>)
 function tosdrError(response: Response): ApiError {
   if (response.status === 404) return clientError(404, 'The requested ToS;DR data was not found.')
   if (response.status === 422) return clientError(400, 'The ToS;DR request was invalid.')
-  if (response.status === 429) return clientError(503, 'ToS;DR rate limit reached. Try again later.')
+  if (response.status === 429)
+    return clientError(503, 'ToS;DR rate limit reached. Try again later.')
   return serverError(`ToS;DR request failed with ${response.status}.`)
 }
 
@@ -384,7 +437,7 @@ function setCorsHeaders(request: IncomingMessage, response: ServerResponse) {
     response.setHeader('Vary', 'Origin')
   }
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Referrer-Policy', 'no-referrer')
 }

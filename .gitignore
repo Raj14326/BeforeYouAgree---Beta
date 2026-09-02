@@ -7,7 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules/
+node_modules
 .DS_Store
 dist
 dist-ssr
@@ -41,5 +41,13 @@ __screenshots__/
 test-results/
 playwright-report/
 
-# For next iteration
-ml/
+
+ml/*
+ml/M006_best_model_package/
+ml/M006_best_model_package/**
+ml/data/
+ml/data/*
+ml/data/unfair_tos/
+ml/data/unfair_tos/**
+ml/train_m006_unfair_tos.py
+ml/sample_policy.txt
