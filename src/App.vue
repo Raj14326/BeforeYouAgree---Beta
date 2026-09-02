@@ -530,7 +530,6 @@ function formattedUpdatedAt(value: string | null) {
                             : 'Analyse risks'
                       }}
                     </button>
-                    <span class="small text-body-secondary">Uses Leo's M006 risk model</span>
                   </div>
                   <div v-if="analysisErrors[termType]" class="alert alert-danger py-2">
                     {{ analysisErrors[termType] }}
