@@ -25,6 +25,7 @@ coverage
 *.sw?
 html-to-plain-text.spec.ts
 *.tsbuildinfo
+/.vite/
 
 .eslintcache
 
