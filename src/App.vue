@@ -80,6 +80,7 @@ const analyses = ref<Record<string, Analysis>>({})
 const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
 const analysisErrors = ref<Record<string, string>>({})
 const analysingTerm = ref<string | null>(null)
+const failedBrandIcons = ref<Record<string, boolean>>({})
 const documentViews = ref<Record<string, string>>({})
 const theme = ref<'light' | 'dark'>(
   document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
@@ -313,7 +314,7 @@ function escapeHtml(value: string) {
   )
 }
 
-// wrapping each risky clause in a <mark> so findings can be seen in context 
+// wrapping each risky clause in a <mark> so findings can be seen in context
 // and jumped to. Called after retrieval and analysis
 // rather than per-render because the source text can be very large.
 function renderDocumentView(termType: string) {
@@ -412,10 +413,27 @@ function formattedUpdatedAt(value: string | null) {
     timeStyle: 'short',
   }).format(new Date(value))
 }
+
+// Brand logos come from the Simple Icons CDN, keyed by a slug derived from the
+// service name. Names that don't map cleanly to a slug are aliased here.
+function brandIconUrl(serviceName: string) {
+  const aliases: Record<string, string> = {
+    Twitter: 'x',
+    'Twitter (X)': 'x',
+    'Google Play': 'googleplay',
+    'Microsoft Teams': 'microsoftteams',
+  }
+  const slug = aliases[serviceName] ?? serviceName.toLowerCase().replace(/[^a-z0-9]/g, '')
+  return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`
+}
+
+function markBrandIconFailed(serviceName: string) {
+  failedBrandIcons.value[serviceName] = true
+}
 </script>
 
 <template>
-  <header class="border-bottom bg-body">
+  <header class="border-bottom bg-body sticky-top">
     <div class="container app-shell py-3 d-flex align-items-center gap-2">
       <i class="bi bi-shield-check fs-4 text-primary"></i>
       <span class="fw-semibold">Before You Agree</span>
@@ -431,9 +449,9 @@ function formattedUpdatedAt(value: string | null) {
   </header>
 
   <main class="container app-shell my-4 my-md-5">
-    <div class="mb-4">
-      <h1 class="h3 fw-bold">Read what you're agreeing to</h1>
-      <p class="text-body-secondary mb-0">
+    <div class="mb-4 mb-md-5">
+      <h1 class="h2 fw-bold mb-2">Read what you're agreeing to</h1>
+      <p class="text-body-secondary fs-5 mb-0">
         Find a digital service and review the terms and policies behind it.
       </p>
     </div>
@@ -470,8 +488,20 @@ function formattedUpdatedAt(value: string | null) {
               style="cursor: pointer"
               @mousedown.prevent="selectService(service)"
             >
-              <i class="bi bi-file-earmark-text text-body-secondary"></i>
-              {{ service.name }}
+              <span class="brand-avatar">
+                <img
+                  v-if="!failedBrandIcons[service.name]"
+                  :src="brandIconUrl(service.name)"
+                  alt=""
+                  loading="lazy"
+                  width="18"
+                  height="18"
+                  @error="markBrandIconFailed(service.name)"
+                />
+                <span v-else>{{ service.name.slice(0, 1).toUpperCase() }}</span>
+              </span>
+              <span class="flex-grow-1">{{ service.name }}</span>
+              <i class="bi bi-chevron-right small text-body-secondary"></i>
             </li>
           </ul>
         </div>
@@ -501,9 +531,22 @@ function formattedUpdatedAt(value: string | null) {
     <div v-if="error" class="alert alert-warning" role="alert">{{ error }}</div>
 
     <section v-if="selectedService" ref="resultsSection" class="card shadow-sm">
-      <div class="card-header bg-body d-flex align-items-center justify-content-between">
+      <div class="card-header bg-transparent d-flex align-items-center gap-2">
+        <span class="brand-avatar brand-avatar-lg">
+          <img
+            v-if="!failedBrandIcons[selectedService.name]"
+            :src="brandIconUrl(selectedService.name)"
+            alt=""
+            width="22"
+            height="22"
+            @error="markBrandIconFailed(selectedService.name)"
+          />
+          <span v-else>{{ selectedService.name.slice(0, 1).toUpperCase() }}</span>
+        </span>
         <h2 class="h5 mb-0">{{ selectedService.name }}</h2>
-        <span class="badge rounded-pill text-bg-light"> {{ termEntries.length }} documents </span>
+        <span class="badge rounded-pill text-bg-light ms-auto">
+          {{ termEntries.length }} documents
+        </span>
       </div>
 
       <div class="table-responsive">
@@ -543,9 +586,10 @@ function formattedUpdatedAt(value: string | null) {
                     v-if="term.historyAvailable"
                     type="button"
                     class="btn btn-sm btn-outline-secondary ms-1"
+                    :aria-expanded="openHistoryTerm === termType"
                     @click="toggleHistory(termType)"
                   >
-                    <i class="bi bi-clock-history"></i>
+                    <i class="bi bi-clock-history me-1"></i>History
                   </button>
 
                   <a
@@ -618,7 +662,7 @@ function formattedUpdatedAt(value: string | null) {
                   <div class="d-flex align-items-center gap-2 mb-2">
                     <button
                       type="button"
-                      class="btn btn-sm btn-danger"
+                      class="btn btn-sm btn-primary"
                       :disabled="Boolean(analysingTerm)"
                       @click="analyseTerm(termType)"
                     >
