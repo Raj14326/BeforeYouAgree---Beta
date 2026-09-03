@@ -1,21 +1,315 @@
 :root {
-  --bs-border-radius: 0.5rem;
+  --bs-body-font-family:
+    'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --bs-primary: #4f46e5;
+  --bs-primary-rgb: 79, 70, 229;
+  --bs-primary-text-emphasis: #3730a3;
+  --bs-primary-bg-subtle: #eef2ff;
+  --bs-primary-border-subtle: #c7d2fe;
+
+  --bs-link-color: #4f46e5;
+  --bs-link-color-rgb: 79, 70, 229;
+  --bs-link-hover-color: #4338ca;
+  --bs-link-hover-color-rgb: 67, 56, 202;
+
+  --bs-border-radius: 0.625rem;
+  --bs-border-radius-sm: 0.4rem;
+  --bs-border-radius-lg: 0.9rem;
+  --bs-border-radius-xl: 1.15rem;
+
+  --bs-border-color: #e5e7eb;
+  --bs-border-color-translucent: rgba(17, 24, 39, 0.1);
 }
 
 :root:not([data-bs-theme='dark']) {
-  --bs-body-bg: #f8f9fa;
+  --bs-body-bg: #f7f8fa;
+  --bs-body-bg-rgb: 247, 248, 250;
+  --bs-secondary-bg: #eef0f3;
+  --bs-tertiary-bg: #f2f3f6;
 }
 
+:root[data-bs-theme='dark'] {
+  --bs-body-bg: #0e0f13;
+  --bs-body-bg-rgb: 14, 15, 19;
+  --bs-body-color: #dfe1e6;
+  --bs-body-color-rgb: 223, 225, 230;
+  --bs-emphasis-color: #f6f7f9;
+  --bs-secondary-color: rgba(223, 225, 230, 0.65);
+  --bs-secondary-bg: #191b22;
+  --bs-secondary-bg-rgb: 25, 27, 34;
+  --bs-tertiary-bg: #15171d;
+  --bs-tertiary-bg-rgb: 21, 23, 29;
+  --bs-border-color: #2a2d37;
+  --bs-border-color-translucent: rgba(255, 255, 255, 0.09);
+
+  --bs-primary: #818cf8;
+  --bs-primary-rgb: 129, 140, 248;
+  --bs-link-color: #a5b4fc;
+  --bs-link-color-rgb: 165, 180, 252;
+  --bs-link-hover-color: #c7d2fe;
+  --bs-link-hover-color-rgb: 199, 210, 252;
+}
+
+/* ---------------------------------------------------------------------------
+   Base
+--------------------------------------------------------------------------- */
 body {
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  letter-spacing: -0.006em;
+}
+
+h1,
+.h1,
+h2,
+.h2,
+h3,
+.h3,
+h4,
+.h4 {
+  letter-spacing: -0.02em;
+}
+
+::selection {
+  background-color: rgba(79, 70, 229, 0.22);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+main section,
+.clause-mark {
+  scroll-margin-top: 5rem;
 }
 
 .app-shell {
   max-width: 820px; /* keeps text lines readable */
 }
 
+/* ---------------------------------------------------------------------------
+   Header
+--------------------------------------------------------------------------- */
+header.sticky-top {
+  background-color: rgba(var(--bs-body-bg-rgb), 0.82);
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+}
+
+/* ---------------------------------------------------------------------------
+   Surfaces
+--------------------------------------------------------------------------- */
+.card {
+  --bs-card-border-color: var(--bs-border-color-translucent);
+  --bs-card-border-radius: var(--bs-border-radius-lg);
+}
+
+:root[data-bs-theme='dark'] .card {
+  --bs-card-bg: #15171d;
+}
+
+.shadow-sm {
+  box-shadow:
+    0 1px 2px rgba(2, 6, 23, 0.04),
+    0 2px 10px rgba(2, 6, 23, 0.06) !important;
+}
+
+:root[data-bs-theme='dark'] .shadow-sm {
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 2px 12px rgba(0, 0, 0, 0.35) !important;
+}
+
+.shadow {
+  box-shadow: 0 12px 40px -12px rgba(2, 6, 23, 0.25) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Buttons
+--------------------------------------------------------------------------- */
+.btn {
+  --bs-btn-font-weight: 500;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.05s ease;
+}
+
+.btn:active {
+  transform: translateY(0.5px);
+}
+
+.btn-lg {
+  --bs-btn-padding-y: 0.7rem;
+  --bs-btn-padding-x: 1.15rem;
+  --bs-btn-font-size: 1rem;
+}
+
+.btn-primary {
+  --bs-btn-bg: #4f46e5;
+  --bs-btn-border-color: #4f46e5;
+  --bs-btn-hover-bg: #4338ca;
+  --bs-btn-hover-border-color: #4338ca;
+  --bs-btn-active-bg: #3730a3;
+  --bs-btn-active-border-color: #3730a3;
+  --bs-btn-disabled-bg: #4f46e5;
+  --bs-btn-disabled-border-color: #4f46e5;
+  --bs-btn-focus-shadow-rgb: 99, 102, 241;
+}
+
+.btn-outline-primary,
+.btn-outline-secondary {
+  --bs-btn-focus-shadow-rgb: 99, 102, 241;
+}
+
+.btn-outline-primary {
+  --bs-btn-color: #4f46e5;
+  --bs-btn-border-color: #c7d2fe;
+  --bs-btn-hover-bg: #4f46e5;
+  --bs-btn-hover-border-color: #4f46e5;
+  --bs-btn-active-bg: #4338ca;
+  --bs-btn-active-border-color: #4338ca;
+}
+
+:root[data-bs-theme='dark'] .btn-primary {
+  --bs-btn-bg: #6366f1;
+  --bs-btn-border-color: #6366f1;
+  --bs-btn-hover-bg: #4f46e5;
+  --bs-btn-hover-border-color: #4f46e5;
+  --bs-btn-active-bg: #4338ca;
+  --bs-btn-active-border-color: #4338ca;
+  --bs-btn-disabled-bg: #6366f1;
+  --bs-btn-disabled-border-color: #6366f1;
+}
+
+:root[data-bs-theme='dark'] .btn-outline-primary {
+  --bs-btn-color: #a5b4fc;
+  --bs-btn-border-color: #3f3f78;
+  --bs-btn-hover-bg: #6366f1;
+  --bs-btn-hover-border-color: #6366f1;
+}
+
+/* ---------------------------------------------------------------------------
+   Forms
+--------------------------------------------------------------------------- */
+.form-control:focus,
+.form-select:focus {
+  border-color: #a5b4fc;
+  box-shadow: 0 0 0 0.25rem rgba(79, 70, 229, 0.18);
+}
+
+.input-group-lg > .form-control,
+.input-group-lg > .input-group-text,
+.input-group-lg > .btn {
+  --bs-border-radius-lg: 0.8rem;
+}
+
+:focus-visible {
+  outline: 2px solid rgba(79, 70, 229, 0.55);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------------------
+   Autocomplete list
+--------------------------------------------------------------------------- */
+.list-group.shadow {
+  border-radius: 0.8rem;
+  overflow: hidden;
+  --bs-list-group-border-color: var(--bs-border-color-translucent);
+}
+
+.list-group-item-action {
+  padding: 0.6rem 0.9rem;
+  transition: background-color 0.12s ease;
+}
+
+.list-group-item.active {
+  --bs-list-group-active-bg: #4f46e5;
+  --bs-list-group-active-border-color: #4f46e5;
+}
+
+/* ---------------------------------------------------------------------------
+   Service brand avatars (Simple Icons + initial fallback)
+--------------------------------------------------------------------------- */
+.brand-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.5rem;
+  /* Kept white in both themes so brand-coloured / black logos stay visible. */
+  background-color: #fff;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 600;
+  overflow: hidden;
+}
+
+.brand-avatar img {
+  width: 1.125rem;
+  height: 1.125rem;
+  object-fit: contain;
+}
+
+.brand-avatar-lg {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.6rem;
+}
+
+.brand-avatar-lg img {
+  width: 1.45rem;
+  height: 1.45rem;
+}
+
+.list-group-item.active .brand-avatar {
+  border-color: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Table
+--------------------------------------------------------------------------- */
+.table {
+  --bs-table-border-color: var(--bs-border-color-translucent);
+}
+
+.table > thead th {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--bs-secondary-color);
+}
+
+/* ---------------------------------------------------------------------------
+   Progress
+--------------------------------------------------------------------------- */
+.progress {
+  border-radius: 999px;
+  background-color: var(--bs-secondary-bg);
+}
+
+.progress-bar {
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+/* ---------------------------------------------------------------------------
+   Document viewer + risk findings
+--------------------------------------------------------------------------- */
 pre {
   font-size: 0.85rem;
+  line-height: 1.6;
 }
 
 .risk-findings {
@@ -25,14 +319,44 @@ pre {
 
 /* Clauses the model flagged as risky, highlighted inside the document text. */
 .clause-mark {
-  background-color: rgba(var(--bs-danger-rgb), 0.18);
+  background-color: rgba(var(--bs-danger-rgb), 0.16);
   color: inherit;
-  padding: 0.05rem 0;
-  border-radius: 0.15rem;
+  padding: 0.08rem 0.15rem;
+  border-radius: 0.2rem;
+  transition:
+    background-color 0.5s ease,
+    box-shadow 0.5s ease;
 }
 
 /* Brief pulse when a finding's "Show in text" button jumps to its clause. */
 .clause-mark-active {
-  background-color: rgba(var(--bs-warning-rgb), 0.5);
-  box-shadow: 0 0 0 0.15rem rgba(var(--bs-warning-rgb), 0.5);
+  background-color: rgba(var(--bs-warning-rgb), 0.55);
+  box-shadow: 0 0 0 0.18rem rgba(var(--bs-warning-rgb), 0.5);
+  transition:
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* ---------------------------------------------------------------------------
+   Scrollbars
+--------------------------------------------------------------------------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bs-border-color) transparent;
+}
+
+pre::-webkit-scrollbar,
+.risk-findings::-webkit-scrollbar,
+.list-group::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+pre::-webkit-scrollbar-thumb,
+.risk-findings::-webkit-scrollbar-thumb,
+.list-group::-webkit-scrollbar-thumb {
+  background-color: var(--bs-border-color);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
