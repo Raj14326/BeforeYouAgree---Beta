@@ -1,6 +1,9 @@
 :root {
-  --bs-body-bg: #f8f9fa;
   --bs-border-radius: 0.5rem;
+}
+
+:root:not([data-bs-theme='dark']) {
+  --bs-body-bg: #f8f9fa;
 }
 
 body {
@@ -18,4 +21,18 @@ pre {
 .risk-findings {
   max-height: 360px;
   overflow-y: auto;
+}
+
+/* Clauses the model flagged as risky, highlighted inside the document text. */
+.clause-mark {
+  background-color: rgba(var(--bs-danger-rgb), 0.18);
+  color: inherit;
+  padding: 0.05rem 0;
+  border-radius: 0.15rem;
+}
+
+/* Brief pulse when a finding's "Show in text" button jumps to its clause. */
+.clause-mark-active {
+  background-color: rgba(var(--bs-warning-rgb), 0.5);
+  box-shadow: 0 0 0 0.15rem rgba(var(--bs-warning-rgb), 0.5);
 }
