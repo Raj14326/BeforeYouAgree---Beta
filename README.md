@@ -1,4 +1,10 @@
-# Before You Agree
+<p align="center">
+  <img src="src/assets/BYA_logo.png"
+       alt="Before You Agree logo"
+       width="180">
+</p>
+
+<h1 align="left">Before You Agree</h1>
 
 Before You Agree retrieves terms and privacy policies, then classifies each clause as
 `risky` or `not_risky`.
