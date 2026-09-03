@@ -101,6 +101,41 @@ header.sticky-top {
   -webkit-backdrop-filter: saturate(180%) blur(12px);
 }
 
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-decoration: none;
+  color: inherit;
+  transition: opacity 0.15s ease;
+}
+
+.brand-lockup:hover {
+  opacity: 0.85;
+}
+
+.brand-logo {
+  height: 2.75rem;
+  width: auto;
+  flex: none;
+}
+
+.brand-wordmark {
+  font-weight: 600;
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 575.98px) {
+  .brand-logo {
+    height: 2rem;
+  }
+
+  .brand-wordmark {
+    font-size: 1.05rem;
+  }
+}
+
 /* ---------------------------------------------------------------------------
    Surfaces
 --------------------------------------------------------------------------- */
