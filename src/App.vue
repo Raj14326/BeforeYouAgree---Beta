@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import logoUrl from './assets/BYA_logo.png'
 
 type Term = {
   sourceUrl: string | null
@@ -434,9 +435,11 @@ function markBrandIconFailed(serviceName: string) {
 
 <template>
   <header class="border-bottom bg-body sticky-top">
-    <div class="container app-shell py-3 d-flex align-items-center gap-2">
-      <i class="bi bi-shield-check fs-4 text-primary"></i>
-      <span class="fw-semibold">Before You Agree</span>
+    <div class="container app-shell py-3 d-flex align-items-center">
+      <a href="/" class="brand-lockup" aria-label="Before You Agree - home">
+        <img :src="logoUrl" alt="" class="brand-logo" />
+        <span class="brand-wordmark">Before You Agree</span>
+      </a>
       <button
         type="button"
         class="btn btn-sm btn-outline-secondary ms-auto"
