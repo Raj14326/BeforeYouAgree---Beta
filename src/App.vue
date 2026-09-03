@@ -80,6 +80,10 @@ const analyses = ref<Record<string, Analysis>>({})
 const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
 const analysisErrors = ref<Record<string, string>>({})
 const analysingTerm = ref<string | null>(null)
+const documentViews = ref<Record<string, string>>({})
+const theme = ref<'light' | 'dark'>(
+  document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
+)
 const openHistoryTerm = ref<string | null>(null)
 const versions = ref<Record<string, VersionOption[]>>({})
 const selectedVersions = ref<Record<string, string>>({})
@@ -181,6 +185,7 @@ async function selectService(service: Service) {
   retrievals.value = {}
   retrievalErrors.value = {}
   analyses.value = {}
+  documentViews.value = {}
   findingFilters.value = {}
   analysisErrors.value = {}
   openHistoryTerm.value = null
@@ -222,6 +227,7 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
     delete analyses.value[termType]
     delete findingFilters.value[termType]
     analysisErrors.value[termType] = ''
+    renderDocumentView(termType)
   } catch (cause) {
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be retrieved.'
@@ -250,6 +256,7 @@ async function analyseTerm(termType: string) {
       throw new Error('error' in payload && payload.error ? payload.error : 'Analysis failed.')
     analyses.value[termType] = payload as Analysis
     findingFilters.value[termType] = 'risky'
+    renderDocumentView(termType)
   } catch (cause) {
     analysisErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be analysed.'
@@ -276,6 +283,95 @@ function confidencePercent(finding: RiskFinding) {
   const probability =
     finding.predictedLabel === 'risky' ? finding.riskProbability : 1 - finding.riskProbability
   return Math.round(probability * 100)
+}
+
+function flaggedShare(termType: string) {
+  const analysis = analyses.value[termType]
+  if (!analysis?.clauseCount) return 0
+  return Math.round((analysis.riskyClauseCount / analysis.clauseCount) * 100)
+}
+
+function severityClass(termType: string) {
+  const share = flaggedShare(termType)
+  if (share >= 25) return 'bg-danger'
+  if (share >= 10) return 'bg-warning'
+  return 'bg-success'
+}
+
+function avgConfidence(termType: string) {
+  return Math.round(analyses.value[termType]?.overallRiskScore ?? 0)
+}
+
+function clauseId(termType: string, index: number) {
+  return `clause-${termType.replace(/[^a-z0-9]+/gi, '-')}-${index}`
+}
+
+function escapeHtml(value: string) {
+  return value.replace(
+    /[&<>"]/g,
+    (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[character] as string,
+  )
+}
+
+// wrapping each risky clause in a <mark> so findings can be seen in context 
+// and jumped to. Called after retrieval and analysis
+// rather than per-render because the source text can be very large.
+function renderDocumentView(termType: string) {
+  const content = retrievals.value[termType]?.content ?? ''
+  if (!content) {
+    delete documentViews.value[termType]
+    return
+  }
+  const analysis = analyses.value[termType]
+  if (!analysis) {
+    documentViews.value[termType] = escapeHtml(content)
+    return
+  }
+
+  const marks = analysis.findings
+    .map((finding, index) => ({
+      index,
+      start: finding.predictedLabel === 'risky' ? content.indexOf(finding.text) : -1,
+      end: 0,
+      length: finding.text.length,
+    }))
+    .filter((mark) => mark.start >= 0)
+    .sort((a, b) => a.start - b.start)
+
+  let cursor = 0
+  let html = ''
+  for (const mark of marks) {
+    if (mark.start < cursor) continue // overlapping clause already covered
+    const end = mark.start + mark.length
+    html += escapeHtml(content.slice(cursor, mark.start))
+    html += `<mark id="${clauseId(termType, mark.index)}" class="clause-mark">${escapeHtml(
+      content.slice(mark.start, end),
+    )}</mark>`
+    cursor = end
+  }
+  html += escapeHtml(content.slice(cursor))
+  documentViews.value[termType] = html
+}
+
+function scrollToClause(termType: string, finding: RiskFinding) {
+  const index = analyses.value[termType]?.findings.indexOf(finding) ?? -1
+  if (index < 0) return
+  const element = document.getElementById(clauseId(termType, index))
+  if (!element) return
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  element.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+  element.classList.add('clause-mark-active')
+  window.setTimeout(() => element.classList.remove('clause-mark-active'), 1600)
+}
+
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-bs-theme', theme.value)
+  try {
+    localStorage.setItem('bya-theme', theme.value)
+  } catch {
+    // Storage can be unavailable (private mode); the toggle still applies this session.
+  }
 }
 
 async function toggleHistory(termType: string) {
@@ -319,10 +415,18 @@ function formattedUpdatedAt(value: string | null) {
 </script>
 
 <template>
-  <header class="border-bottom bg-white">
+  <header class="border-bottom bg-body">
     <div class="container app-shell py-3 d-flex align-items-center gap-2">
       <i class="bi bi-shield-check fs-4 text-primary"></i>
       <span class="fw-semibold">Before You Agree</span>
+      <button
+        type="button"
+        class="btn btn-sm btn-outline-secondary ms-auto"
+        :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+        @click="toggleTheme"
+      >
+        <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
+      </button>
     </div>
   </header>
 
@@ -397,14 +501,14 @@ function formattedUpdatedAt(value: string | null) {
     <div v-if="error" class="alert alert-warning" role="alert">{{ error }}</div>
 
     <section v-if="selectedService" ref="resultsSection" class="card shadow-sm">
-      <div class="card-header bg-white d-flex align-items-center justify-content-between">
+      <div class="card-header bg-body d-flex align-items-center justify-content-between">
         <h2 class="h5 mb-0">{{ selectedService.name }}</h2>
         <span class="badge rounded-pill text-bg-light"> {{ termEntries.length }} documents </span>
       </div>
 
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
-          <thead class="table-light">
+          <thead>
             <tr>
               <th>Document</th>
               <th>Last updated</th>
@@ -534,9 +638,9 @@ function formattedUpdatedAt(value: string | null) {
                   <div v-if="analysisErrors[termType]" class="alert alert-danger py-2">
                     {{ analysisErrors[termType] }}
                   </div>
-                  <div v-if="analyses[termType]" class="border rounded p-3 mb-2 bg-white">
+                  <div v-if="analyses[termType]" class="border rounded p-3 mb-2 bg-body-tertiary">
                     <div
-                      class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"
+                      class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3"
                     >
                       <h3 class="h6 mb-0">Risk analysis</h3>
                       <div class="d-flex align-items-center gap-2">
@@ -559,8 +663,54 @@ function formattedUpdatedAt(value: string | null) {
                         </select>
                       </div>
                     </div>
+
+                    <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+                      <div class="text-center lh-1">
+                        <div class="display-6 fw-bold">
+                          {{ analyses[termType]?.riskyClauseCount }}
+                        </div>
+                        <div class="small text-body-secondary">
+                          risky
+                          {{ analyses[termType]?.riskyClauseCount === 1 ? 'clause' : 'clauses' }}
+                        </div>
+                      </div>
+                      <div class="flex-grow-1" style="min-width: 220px">
+                        <div class="d-flex flex-wrap justify-content-between small mb-1">
+                          <span>
+                            {{ flaggedShare(termType) }}% of
+                            {{ analyses[termType]?.clauseCount }} clauses flagged
+                          </span>
+                          <span class="text-body-secondary">
+                            avg. confidence {{ avgConfidence(termType) }}%
+                          </span>
+                        </div>
+                        <div
+                          class="progress"
+                          role="progressbar"
+                          :aria-label="`Share of clauses flagged as risky in ${termType.replace(
+                            /_/g,
+                            ' ',
+                          )}`"
+                          :aria-valuenow="flaggedShare(termType)"
+                          aria-valuemin="0"
+                          aria-valuemax="100"
+                          style="height: 10px"
+                        >
+                          <div
+                            class="progress-bar"
+                            :class="severityClass(termType)"
+                            :style="{ width: `${flaggedShare(termType)}%` }"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+
                     <div v-if="!visibleFindings(termType).length" class="text-body-secondary small">
-                      No clauses have this label.
+                      {{
+                        (findingFilters[termType] ?? 'risky') === 'risky'
+                          ? 'No clauses were flagged as risky.'
+                          : 'Every analysed clause was flagged as risky.'
+                      }}
                     </div>
                     <div v-else class="risk-findings">
                       <article
@@ -568,7 +718,7 @@ function formattedUpdatedAt(value: string | null) {
                         :key="`${finding.text}-${findingIndex}`"
                         class="border rounded p-2 mb-2"
                       >
-                        <div class="d-flex flex-wrap gap-2 mb-1">
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                           <span
                             class="badge"
                             :class="
@@ -580,18 +730,36 @@ function formattedUpdatedAt(value: string | null) {
                             {{ finding.predictedLabel === 'risky' ? 'Risky' : 'Not risky' }} ·
                             {{ confidencePercent(finding) }}% confidence
                           </span>
+                          <button
+                            v-if="finding.predictedLabel === 'risky'"
+                            type="button"
+                            class="btn btn-sm btn-link p-0"
+                            @click="scrollToClause(termType, finding)"
+                          >
+                            Show in text
+                          </button>
                         </div>
                         <p class="mb-0 small">{{ finding.text }}</p>
                       </article>
                     </div>
                     <p class="text-body-secondary small mb-0 mt-2">
-                      Automated prediction; not legal advice.
+                      Binary automated prediction (risky / not risky); not legal advice.
                     </p>
                   </div>
+                  <p
+                    v-if="analyses[termType]?.riskyClauseCount"
+                    class="text-body-secondary small mb-1"
+                  >
+                    <mark class="clause-mark">Highlighted</mark> passages are the clauses flagged as
+                    risky.
+                  </p>
                   <pre
                     class="border rounded bg-body-tertiary p-3 mb-0"
+                    tabindex="0"
+                    aria-label="Retrieved document text with risky clauses highlighted"
                     style="max-height: 420px; overflow: auto; white-space: pre-wrap"
-                    >{{ retrievals[termType]?.content }}</pre>
+                    v-html="documentViews[termType] || ''"
+                  ></pre>
                 </td>
               </tr>
             </template>
@@ -605,7 +773,7 @@ function formattedUpdatedAt(value: string | null) {
       <ol class="text-body-secondary ps-3 mb-0">
         <li class="mb-1">Search the public catalogue of tracked digital services.</li>
         <li class="mb-1">Retrieve the current policy text, or pick an archived older version.</li>
-        <li>Analyse the retrieved text for Low, Medium, and High risk clauses.</li>
+        <li>Analyse the retrieved text to flag the clauses the model predicts are risky.</li>
       </ol>
     </section>
   </main>
