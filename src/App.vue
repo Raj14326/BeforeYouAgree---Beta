@@ -1,6 +1,32 @@
 <script setup lang="ts">
+/**
+ * App.vue: the entire Before You Agree user interface.
+ *
+ * A single-component app: search for a service, list its policy documents,
+ * retrieve one document's text (latest or an archived version), run the risk
+ * analysis, and read the flagged clauses in context.
+ *
+ * It talks only to the backend API (see `server/index.ts`); `VITE_API_URL` sets
+ * the base URL (empty in dev, where Vite proxies `/api`). When the catalogue
+ * endpoint is unreachable the UI falls back to {@link FALLBACK_SERVICES} so the
+ * page is still usable.
+ *
+ * Layout of this script block:
+ *   1. Types            — shapes of the API payloads
+ *   2. Constants        — fallback data, API base URL
+ *   3. Reactive state   — refs backing the template
+ *   4. Computed         — derived view data
+ *   5. Lifecycle        — onMounted
+ *   6. API calls        — catalogue, service, retrieval, analysis, history
+ *   7. View helpers     — formatting, highlighting, theme, brand icons
+ */
+
 import { computed, nextTick, onMounted, ref } from 'vue'
 import logoUrl from './assets/BYA_logo.png'
+
+// ---------------------------------------------------------------------------
+// 1. Types: mirror the JSON returned by server/index.ts
+// ---------------------------------------------------------------------------
 
 type Term = {
   sourceUrl: string | null
@@ -39,6 +65,11 @@ type Analysis = {
   findings: RiskFinding[]
 }
 
+// ---------------------------------------------------------------------------
+// 2. Constants
+// ---------------------------------------------------------------------------
+
+/** Offline service list used when `GET /api/services` fails on load. */
 const FALLBACK_SERVICES: Service[] = [
   'Amazon',
   'Apple',
@@ -62,11 +93,19 @@ const FALLBACK_SERVICES: Service[] = [
   'YouTube',
 ].map((name) => ({ name, path: `declarations/${name}.json` }))
 
+/** API origin from `VITE_API_URL`; empty in dev, where Vite proxies `/api`. */
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 
+/** Join {@link API_BASE_URL} with an API path (which may or may not be absolute). */
 function apiUrl(path: string) {
   return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
 }
+
+// ---------------------------------------------------------------------------
+// 3. Reactive state
+//    Per-document maps below are keyed by term type ("terms", "privacy", …) so
+//    several documents can be retrieved and analysed independently in one view.
+// ---------------------------------------------------------------------------
 
 const query = ref('')
 const services = ref<Service[]>([])
@@ -96,6 +135,11 @@ const activeIndex = ref(-1)
 const resultsSection = ref<HTMLElement | null>(null)
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 
+// ---------------------------------------------------------------------------
+// 4. Computed
+// ---------------------------------------------------------------------------
+
+/** Up to 10 services matching the current query (or the first 10 when empty). */
 const suggestions = computed(() => {
   const needle = query.value.trim().toLowerCase()
   if (!needle) return services.value.slice(0, 10)
@@ -104,12 +148,22 @@ const suggestions = computed(() => {
     .slice(0, 10)
 })
 
+/** `[termType, Term]` pairs for the selected service, in API order. */
 const termEntries = computed(
   () => Object.entries(selectedService.value?.terms ?? {}) as Array<[string, Term]>,
 )
 
+// ---------------------------------------------------------------------------
+// 5. Lifecycle
+// ---------------------------------------------------------------------------
+
 onMounted(loadCatalogue)
 
+// ---------------------------------------------------------------------------
+// 6. API calls
+// ---------------------------------------------------------------------------
+
+/** Load the full service catalogue once on mount; on failure use {@link FALLBACK_SERVICES}. */
 async function loadCatalogue() {
   try {
     const response = await fetch(apiUrl('/api/services'))
@@ -125,6 +179,7 @@ async function loadCatalogue() {
   }
 }
 
+/** On each keystroke: open the dropdown, clear any selection, and debounce a search by 250 ms (min 2 chars). */
 function handleInput() {
   isOpen.value = true
   activeIndex.value = -1
@@ -136,6 +191,7 @@ function handleInput() {
   searchTimer = setTimeout(() => searchServices(needle), 250)
 }
 
+/** Keyboard navigation for the suggestions dropdown: Up/Down move, Enter selects, Escape closes. */
 function handleKeydown(event: KeyboardEvent) {
   if (!isOpen.value || !suggestions.value.length) return
   if (event.key === 'ArrowDown') {
@@ -153,6 +209,11 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
+/**
+ * Replace the catalogue with server-side search results for `needle`. Stale
+ * responses (the query moved on) and upstream failures are ignored, keeping the
+ * last good catalogue on screen.
+ */
 async function searchServices(needle: string) {
   try {
     const response = await fetch(
@@ -169,6 +230,7 @@ async function searchServices(needle: string) {
   }
 }
 
+/** Handle the search form submit: pick an exact name match, else the top suggestion, else show an error. */
 async function submitSearch() {
   const exact = services.value.find(
     (service) => service.name.toLowerCase() === query.value.trim().toLowerCase(),
@@ -178,6 +240,11 @@ async function submitSearch() {
   else error.value = 'No matching service is currently available from ToS;DR.'
 }
 
+/**
+ * Load one service's declaration and show its document table. Resets every
+ * per-document map (retrievals, analyses, history, …) so nothing leaks from the
+ * previously viewed service, then scrolls the results into view.
+ */
 async function selectService(service: Service) {
   query.value = service.name
   isOpen.value = false
@@ -215,6 +282,11 @@ async function selectService(service: Service) {
   }
 }
 
+/**
+ * Fetch a document's plain text and show it. Pass `versionUrl` to load a
+ * specific archived version; otherwise the term's `latestUrl` is used. Clears
+ * any prior analysis for this term so the viewer starts from raw text.
+ */
 async function retrieveTerm(termType: string, versionUrl?: string) {
   if (!selectedService.value || retrievingTerm.value) return
   retrievingTerm.value = termType
@@ -238,6 +310,11 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
   }
 }
 
+/**
+ * Send the retrieved text to `POST /api/analyze`, store the findings, default
+ * the findings filter to "risky", and re-render the document view with the
+ * risky clauses highlighted.
+ */
 async function analyseTerm(termType: string) {
   const retrieval = retrievals.value[termType]
   if (!retrieval || analysingTerm.value) return
@@ -267,6 +344,11 @@ async function analyseTerm(termType: string) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 7. View helpers : pure functions over the state above, called from the template
+// ---------------------------------------------------------------------------
+
+/** Findings for a term filtered to the currently selected label (default "risky"). */
 function visibleFindings(termType: string) {
   const filter = findingFilters.value[termType] ?? 'risky'
   return (
@@ -274,6 +356,7 @@ function visibleFindings(termType: string) {
   )
 }
 
+/** Number of findings for a term with the given label (used in the filter dropdown). */
 function labelCount(termType: string, label: RiskFinding['predictedLabel']) {
   return (
     analyses.value[termType]?.findings.filter((finding) => finding.predictedLabel === label)
@@ -281,18 +364,21 @@ function labelCount(termType: string, label: RiskFinding['predictedLabel']) {
   )
 }
 
+/** Confidence in the *predicted* label as a percentage (so a not-risky prediction shows 1 − p). */
 function confidencePercent(finding: RiskFinding) {
   const probability =
     finding.predictedLabel === 'risky' ? finding.riskProbability : 1 - finding.riskProbability
   return Math.round(probability * 100)
 }
 
+/** Percentage of analysed clauses flagged risky, for the progress bar. */
 function flaggedShare(termType: string) {
   const analysis = analyses.value[termType]
   if (!analysis?.clauseCount) return 0
   return Math.round((analysis.riskyClauseCount / analysis.clauseCount) * 100)
 }
 
+/** Bootstrap colour for the progress bar: red ≥ 25% flagged, amber ≥ 10%, else green. */
 function severityClass(termType: string) {
   const share = flaggedShare(termType)
   if (share >= 25) return 'bg-danger'
@@ -300,14 +386,17 @@ function severityClass(termType: string) {
   return 'bg-success'
 }
 
+/** The analysis `overallRiskScore` (mean confidence of the risky clauses) rounded to a whole percent. */
 function avgConfidence(termType: string) {
   return Math.round(analyses.value[termType]?.overallRiskScore ?? 0)
 }
 
+/** Stable DOM id for a clause's `<mark>`, so a finding can be scrolled to. Must match {@link renderDocumentView}. */
 function clauseId(termType: string, index: number) {
   return `clause-${termType.replace(/[^a-z0-9]+/gi, '-')}-${index}`
 }
 
+/** Escape the five HTML-significant characters before text is injected via `v-html`. */
 function escapeHtml(value: string) {
   return value.replace(
     /[&<>"]/g,
@@ -315,9 +404,18 @@ function escapeHtml(value: string) {
   )
 }
 
-// wrapping each risky clause in a <mark> so findings can be seen in context
-// and jumped to. Called after retrieval and analysis
-// rather than per-render because the source text can be very large.
+/**
+ * Build the HTML shown in the document viewer for a term.
+ *
+ * With no analysis yet, it is just the escaped source text. After analysis,
+ * each risky clause is located in the text by substring match and wrapped in a
+ * `<mark id=…>` (id from {@link clauseId}) so findings can be seen in context
+ * and scrolled to. All non-mark text is HTML-escaped.
+ *
+ * Overlapping matches are skipped (`mark.start < cursor`), and clauses whose
+ * text is not found verbatim are dropped. Computed once per retrieval/analysis
+ * rather than per render because policy documents can be very large.
+ */
 function renderDocumentView(termType: string) {
   const content = retrievals.value[termType]?.content ?? ''
   if (!content) {
@@ -355,6 +453,7 @@ function renderDocumentView(termType: string) {
   documentViews.value[termType] = html
 }
 
+/** Scroll the matching `<mark>` into view and flash it; respects `prefers-reduced-motion`. */
 function scrollToClause(termType: string, finding: RiskFinding) {
   const index = analyses.value[termType]?.findings.indexOf(finding) ?? -1
   if (index < 0) return
@@ -366,6 +465,7 @@ function scrollToClause(termType: string, finding: RiskFinding) {
   window.setTimeout(() => element.classList.remove('clause-mark-active'), 1600)
 }
 
+/** Flip light/dark, apply it via `data-bs-theme` on `<html>`, and persist to localStorage. */
 function toggleTheme() {
   theme.value = theme.value === 'dark' ? 'light' : 'dark'
   document.documentElement.setAttribute('data-bs-theme', theme.value)
@@ -376,6 +476,11 @@ function toggleTheme() {
   }
 }
 
+/**
+ * Toggle the version-history row for a term. On first open, fetch the list of
+ * archived versions and preselect the newest; results are cached in
+ * `versions` so reopening does not refetch.
+ */
 async function toggleHistory(termType: string) {
   if (openHistoryTerm.value === termType) {
     openHistoryTerm.value = null
@@ -400,6 +505,7 @@ async function toggleHistory(termType: string) {
   }
 }
 
+/** Retrieve the archived version chosen in the history dropdown, then close the row. */
 async function retrieveSelectedVersion(termType: string) {
   const versionUrl = selectedVersions.value[termType]
   if (!versionUrl) return
@@ -407,6 +513,7 @@ async function retrieveSelectedVersion(termType: string) {
   openHistoryTerm.value = null
 }
 
+/** Format an ISO timestamp for display in en-AU, or a fallback phrase when null. */
 function formattedUpdatedAt(value: string | null) {
   if (!value) return 'an unknown date'
   return new Intl.DateTimeFormat('en-AU', {
@@ -428,11 +535,17 @@ function brandIconUrl(serviceName: string) {
   return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`
 }
 
+/** Record that a brand icon failed to load so the template shows the initial-letter fallback. */
 function markBrandIconFailed(serviceName: string) {
   failedBrandIcons.value[serviceName] = true
 }
 </script>
 
+<!--
+  Structure: header (brand + theme toggle) · search form with autocomplete ·
+  results <section> (document table; each row can expand into a version-history
+  picker, an error, or the retrieved-text + risk-analysis panel) · "How it works".
+-->
 <template>
   <header class="border-bottom bg-body sticky-top">
     <div class="container app-shell py-3 d-flex align-items-center">

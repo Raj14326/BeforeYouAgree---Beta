@@ -1,3 +1,31 @@
+/**
+ * Before You Agree HTTP API.
+ *
+ * A single dependency-free Node HTTP server. It is the only component that talks
+ * to the outside internet; the Vue frontend calls nothing but this API.
+ *
+ * Responsibilities:
+ *  - Serve the service catalogue and policy documents by proxying **ToS;DR**
+ *    (`api.tosdr.org`).
+ *  - Serve dated historical versions of those documents from the **Open Terms
+ *    Archive** `contrib-versions` repo on GitHub.
+ *  - Run clause risk analysis locally via the M006 model (`m006-model.ts`).
+ *  - Be a good upstream citizen: in-memory response caching, a per-IP rate
+ *    limit, request-size limits, and an allow-listed CORS policy.
+ *
+ * Routing is a hand-written match on the split URL path in the request handler
+ * below; every route table entry maps to one `handle*` function. All handlers
+ * reply through {@link sendJson} and throw {@link clientError}/{@link serverError}
+ * for anything that should not be a 200, the top-level catch turns those into
+ * JSON error responses.
+ *
+ * Configuration (environment variables):
+ *  - `PORT` (default 8787), `HOST` (default 0.0.0.0)
+ *  - `ALLOWED_ORIGINS`: comma-separated origins allowed for CORS (localhost is
+ *    always allowed)
+ *  - `GITHUB_TOKEN`: optional; raises the GitHub API rate limit for history
+ *  - `LEO_MODEL_PATH`: optional; overrides the model file location
+ */
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
@@ -20,13 +48,20 @@ type ArchivedDocument = { serviceName: string; termsType: string; path: string }
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '0.0.0.0'
+
+// Upstream data sources.
 const TOSDR_API = 'https://api.tosdr.org'
 const GITHUB_API = 'https://api.github.com'
 const GITHUB_RAW = 'https://raw.githubusercontent.com'
 const ARCHIVE_OWNER = 'OpenTermsArchive'
 const ARCHIVE_REPO = 'contrib-versions'
+
+// Cache lifetimes: metadata (service lists, indexes) is refreshed more often
+// than document bodies, which rarely change and are the expensive fetches.
 const CACHE_TTL_MS = 10 * 60 * 1000
 const CONTENT_CACHE_TTL_MS = 60 * 60 * 1000
+
+// Per-IP rate limit: RATE_LIMIT requests per RATE_WINDOW_MS.
 const RATE_LIMIT = 60
 const RATE_WINDOW_MS = 60 * 1000
 const ALLOWED_ORIGINS = new Set(
@@ -36,9 +71,20 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean),
 )
 
+/** Process-wide upstream response cache, keyed by a `source:path` string. */
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>()
+/** Per-IP rate-limit counters, keyed by remote address. */
 const requestBuckets = new Map<string, RequestBucket>()
 
+/**
+ * Main request handler and route table.
+ *
+ * Order matters: CORS headers first, then the preflight short-circuit, then the
+ * two "special" routes (`/api/health` needs no rate limit; `/api/analyze` is the
+ * only POST), then GET-only path matching by segment count and prefix. Anything
+ * unmatched is a 404. Errors thrown anywhere below are normalised to a JSON
+ * response by the surrounding catch.
+ */
 const server = http.createServer(async (request, response) => {
   setCorsHeaders(request, response)
   if (request.method === 'OPTIONS') return endEmpty(response, 204)
@@ -93,6 +139,12 @@ const server = http.createServer(async (request, response) => {
   }
 })
 
+/**
+ * `POST /api/analyze`: classify a document's clauses with the local M006 model.
+ *
+ * Body: `{ content: string, serviceName?: string, documentType?: string }`.
+ * Rejects empty content (400) and content over 500 kB (413). No upstream calls.
+ */
 async function analyzeDocument(request: IncomingMessage, response: ServerResponse) {
   const body = await readJsonBody(request)
   const content = typeof body.content === 'string' ? body.content.trim() : ''
@@ -110,6 +162,10 @@ async function analyzeDocument(request: IncomingMessage, response: ServerRespons
   )
 }
 
+/**
+ * Read and JSON-parse a request body, aborting with 413 if it exceeds ~510 kB
+ * and rejecting with 400 on invalid JSON. An empty body parses as `{}`.
+ */
 function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolveBody, reject) => {
     let raw = ''
@@ -133,6 +189,14 @@ server.listen(PORT, HOST, () => {
   console.log(`Before You Agree ToS;DR API listening on http://${HOST}:${PORT}`)
 })
 
+/**
+ * `GET /api/services`: the service catalogue, sorted by name.
+ *
+ * With `?search=` it hits the ToS;DR search endpoint; without, it returns the
+ * first page of the full service list. `?limit=` (1–500, default 100) caps the
+ * result. Response: `{ data, count, total }` where each item is
+ * `{ id, name, slug?, rating? }` with `id` stringified.
+ */
 async function listServices(url: URL, response: ServerResponse) {
   const query = (url.searchParams.get('search') || '').trim()
   const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 500)
@@ -163,6 +227,15 @@ async function listServices(url: URL, response: ServerResponse) {
   return sendJson(response, 200, { data, count: data.length, total })
 }
 
+/**
+ * `GET /api/service/:serviceId`: one service plus its policy documents.
+ *
+ * Each ToS;DR document is cross-referenced against the Open Terms Archive index
+ * (see {@link getArchiveIndex} / {@link findArchivedDocument}); when a match is
+ * found, `historyAvailable` is set and `historyUrl` points at the versions
+ * route. A missing/failed archive index degrades gracefully to "no history".
+ * Response: `{ id, name, rating, terms: [...] }`.
+ */
 async function getService(serviceId: string, response: ServerResponse) {
   const id = parseId(serviceId, 'service')
   const service = await tosdrJson<Service>(`/service/v3?id=${id}`, CACHE_TTL_MS)
@@ -193,6 +266,13 @@ async function getService(serviceId: string, response: ServerResponse) {
   })
 }
 
+/**
+ * `GET /api/versions/:serviceId/:documentId`: dated history for one document.
+ *
+ * Lists the Git commits that touched this document's file in the Open Terms
+ * Archive repo, newest first (`?limit=` 1–100, default 100). Each entry carries
+ * a `url` to {@link getArchivedVersion} for that commit SHA.
+ */
 async function listVersions(
   serviceId: string,
   documentId: string,
@@ -216,6 +296,14 @@ async function listVersions(
   return sendJson(response, 200, { data, count: data.length })
 }
 
+/**
+ * `GET /api/version/:serviceId/:documentId/:commitSha`: one archived version.
+ *
+ * `commitSha` must be a full 40-hex Git SHA. The commit is verified to actually
+ * touch this document's file (else 404) before the raw Markdown at that revision
+ * is fetched. Response mirrors {@link getDocument} but with
+ * `repository: "OpenTermsArchive/contrib-versions"` and a GitHub blob URL.
+ */
 async function getArchivedVersion(
   serviceId: string,
   documentId: string,
@@ -251,6 +339,11 @@ async function getArchivedVersion(
   })
 }
 
+/**
+ * Shared lookup for the two history routes: resolve `serviceId`/`documentId` to
+ * the ToS;DR service and document, then to the matching Open Terms Archive file.
+ * Throws 404 at whichever step fails.
+ */
 async function resolveArchivedDocument(serviceId: string, documentId: string) {
   const serviceNumber = parseId(serviceId, 'service')
   const documentNumber = parseId(documentId, 'document')
@@ -267,6 +360,14 @@ async function resolveArchivedDocument(serviceId: string, documentId: string) {
   return { service, document, archivedDocument }
 }
 
+/**
+ * `GET /api/version/:serviceId/:documentId/latest`: current document text.
+ *
+ * Fetches the ToS;DR document, checks it belongs to the given service (else
+ * 404), and converts its stored HTML to plain text via {@link htmlToPlainText}.
+ * Response: `{ format, id, serviceId, termsType, fetchDate, content,
+ * characterCount, sourceUrl, repository: "ToS;DR", repositoryUrl }`.
+ */
 async function getDocument(serviceId: string, documentId: string, response: ServerResponse) {
   const service = parseId(serviceId, 'service')
   const document = parseId(documentId, 'document')
@@ -295,6 +396,7 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
   })
 }
 
+/** Cached GET against the ToS;DR API. 20 s timeout; upstream errors mapped by {@link tosdrError}. */
 async function tosdrJson<T>(path: string, ttl: number): Promise<T> {
   return cachedJson<T>(`tosdr:${path}`, ttl, async () => {
     const response = await fetch(`${TOSDR_API}${path}`, {
@@ -306,6 +408,14 @@ async function tosdrJson<T>(path: string, ttl: number): Promise<T> {
   })
 }
 
+/**
+ * Build (and cache) the index of every archived document.
+ *
+ * Reads the archive repo's full Git tree and keeps each blob whose path looks
+ * like `<Service Name>/<Document Type>.md`, capturing the service, type and
+ * repo path. A truncated tree is treated as an error rather than a partial
+ * index.
+ */
 async function getArchiveIndex(): Promise<ArchivedDocument[]> {
   return cachedJson<ArchivedDocument[]>('archive:index', CACHE_TTL_MS, async () => {
     const tree = await githubJson<GitHubTree>(
@@ -320,6 +430,13 @@ async function getArchiveIndex(): Promise<ArchivedDocument[]> {
   })
 }
 
+/**
+ * Match a ToS;DR service/document name pair to an entry in the archive index.
+ *
+ * ToS;DR and the Open Terms Archive name things differently ("Privacy Policy"
+ * vs "Privacy", "Google Inc." vs "Google"), so both sides are run through
+ * {@link comparableName} and compared on the normalised form.
+ */
 function findArchivedDocument(
   archive: ArchivedDocument[],
   serviceName: string,
@@ -334,6 +451,14 @@ function findArchivedDocument(
   )
 }
 
+/**
+ * Normalise a name for fuzzy comparison: lowercase, strip everything that is not
+ * a letter or digit, drop a trailing "service"/"services" for service names,
+ * and fold the common wordings of the two document types onto "terms" and
+ * "privacy".
+ *
+ * @param service `true` for a service name, `false` for a document-type name.
+ */
 function comparableName(value: string, service: boolean) {
   let normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '')
   if (service) normalized = normalized.replace(/services?$/, '')
@@ -342,6 +467,7 @@ function comparableName(value: string, service: boolean) {
     .replace(/privacystatement|privacynotice|privacypolicy/g, 'privacy')
 }
 
+/** Cached GET against the GitHub REST API (adds auth if `GITHUB_TOKEN` is set). 20 s timeout. */
 async function githubJson<T>(path: string, ttl: number): Promise<T> {
   return cachedJson<T>(`github:${path}`, ttl, async () => {
     const response = await fetch(`${GITHUB_API}${path}`, {
@@ -353,6 +479,7 @@ async function githubJson<T>(path: string, ttl: number): Promise<T> {
   })
 }
 
+/** Cached fetch of a file's raw contents at a specific commit from `raw.githubusercontent.com`. */
 async function archiveText(revision: string, path: string) {
   return cachedJson<string>(`archive:${revision}:${path}`, CONTENT_CACHE_TTL_MS, async () => {
     const response = await fetch(
@@ -364,6 +491,7 @@ async function archiveText(revision: string, path: string) {
   })
 }
 
+/** Standard GitHub API headers, with a bearer token when `GITHUB_TOKEN` is present. */
 function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -374,6 +502,7 @@ function githubHeaders(): Record<string, string> {
   return headers
 }
 
+/** Map a failed GitHub response to a client-facing error (404 → not found, 403/429 → 503). */
 function githubError(response: Response): ApiError {
   if (response.status === 404)
     return clientError(404, 'The requested historical version was not found.')
@@ -383,10 +512,12 @@ function githubError(response: Response): ApiError {
   return serverError(`Historical archive request failed with ${response.status}.`)
 }
 
+/** Percent-encode each path segment while leaving the "/" separators intact. */
 function encodePath(path: string) {
   return path.split('/').map(encodeURIComponent).join('/')
 }
 
+/** Human-readable UTC date+time label for a version, or "Unknown date". */
 function formatVersionDate(value?: string) {
   if (!value) return 'Unknown date'
   return new Intl.DateTimeFormat('en-AU', {
@@ -396,6 +527,12 @@ function formatVersionDate(value?: string) {
   }).format(new Date(value))
 }
 
+/**
+ * Read `key` from {@link responseCache} if it is still fresh, otherwise run
+ * `loader`, store the result for `ttl` ms, and return it. Failed loads are not
+ * cached. The cache is unbounded but entries are effectively self-limiting given
+ * the small, fixed set of upstream paths.
+ */
 async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
   const cached = responseCache.get(key)
   if (cached?.expiresAt && cached.expiresAt > Date.now()) return cached.value as T
@@ -404,6 +541,7 @@ async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>)
   return value
 }
 
+/** Map a failed ToS;DR response to a client-facing error (404/422 → 4xx, 429 → 503). */
 function tosdrError(response: Response): ApiError {
   if (response.status === 404) return clientError(404, 'The requested ToS;DR data was not found.')
   if (response.status === 422) return clientError(400, 'The ToS;DR request was invalid.')
@@ -412,11 +550,17 @@ function tosdrError(response: Response): ApiError {
   return serverError(`ToS;DR request failed with ${response.status}.`)
 }
 
+/** Parse a positive integer path parameter, throwing 400 with `label` on anything else. */
 function parseId(value: string, label: string) {
   if (!/^\d+$/.test(value)) throw clientError(400, `Invalid ${label} ID.`)
   return Number(value)
 }
 
+/**
+ * Fixed-window per-IP rate limiter. Each remote address gets {@link RATE_LIMIT}
+ * requests per {@link RATE_WINDOW_MS}; the window resets lazily on the first
+ * request after it expires. Over the limit throws 429.
+ */
 function enforceRateLimit(request: IncomingMessage) {
   const key = request.socket.remoteAddress || 'local'
   const now = Date.now()
@@ -429,6 +573,12 @@ function enforceRateLimit(request: IncomingMessage) {
   if (bucket.count > RATE_LIMIT) throw clientError(429, 'Too many requests. Try again shortly.')
 }
 
+/**
+ * Set CORS and hardening headers on every response. The `Access-Control-Allow-
+ * Origin` header is echoed back only for `localhost`/`127.0.0.1` or an origin
+ * listed in `ALLOWED_ORIGINS`; other origins get no ACAO header (request blocked
+ * by the browser).
+ */
 function setCorsHeaders(request: IncomingMessage, response: ServerResponse) {
   const origin = request.headers.origin
   const isLocalOrigin = origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
@@ -442,6 +592,7 @@ function setCorsHeaders(request: IncomingMessage, response: ServerResponse) {
   response.setHeader('Referrer-Policy', 'no-referrer')
 }
 
+/** Parse an optional integer query param, returning `fallback` when absent and throwing 400 when out of `[minimum, maximum]`. */
 function parseInteger(value: string | null, fallback: number, minimum: number, maximum: number) {
   if (value === null) return fallback
   const parsed = Number.parseInt(value, 10)
@@ -451,6 +602,7 @@ function parseInteger(value: string | null, fallback: number, minimum: number, m
   return parsed
 }
 
+/** `decodeURIComponent` that turns a malformed escape into a 400 instead of a throw. */
 function decodePathSegment(segment: string) {
   try {
     return decodeURIComponent(segment)
@@ -459,6 +611,7 @@ function decodePathSegment(segment: string) {
   }
 }
 
+/** Write a JSON response with the right headers; no-op if the response is already sent. */
 function sendJson(response: ServerResponse, status: number, payload: unknown) {
   if (response.writableEnded) return
   const body = JSON.stringify(payload)
@@ -469,19 +622,23 @@ function sendJson(response: ServerResponse, status: number, payload: unknown) {
   response.end(body)
 }
 
+/** End a response with a status code and no body (used for the CORS preflight). */
 function endEmpty(response: ServerResponse, status: number) {
   response.writeHead(status)
   response.end()
 }
 
+/** Build an error whose `message` is safe to show the client, tagged with an HTTP `statusCode`. */
 function clientError(statusCode: number, message: string): ApiError {
   return Object.assign(new Error(message), { statusCode })
 }
 
+/** Build a 502 error for upstream failures we cannot attribute to the caller. */
 function serverError(message: string): ApiError {
   return Object.assign(new Error(message), { statusCode: 502 })
 }
 
+/** Coerce any thrown value into an {@link ApiError}, defaulting to 500. */
 function normalizeError(error: unknown): ApiError {
   if (error instanceof Error) {
     const statusCode = 'statusCode' in error ? Number(error.statusCode) || 500 : 500
@@ -490,6 +647,7 @@ function normalizeError(error: unknown): ApiError {
   return Object.assign(new Error('Unknown server error.'), { statusCode: 500 })
 }
 
+/** Stop accepting connections and exit once in-flight requests drain. */
 function shutdown() {
   server.close(() => process.exit(0))
 }

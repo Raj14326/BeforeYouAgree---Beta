@@ -22,6 +22,7 @@
   --bs-border-color-translucent: rgba(17, 24, 39, 0.1);
 }
 
+/* Light theme (default): active unless an explicit dark theme is set. */
 :root:not([data-bs-theme='dark']) {
   --bs-body-bg: #f7f8fa;
   --bs-body-bg-rgb: 247, 248, 250;
@@ -29,6 +30,7 @@
   --bs-tertiary-bg: #f2f3f6;
 }
 
+/* Dark theme: set by index.html / the header toggle writing data-bs-theme="dark". */
 :root[data-bs-theme='dark'] {
   --bs-body-bg: #0e0f13;
   --bs-body-bg-rgb: 14, 15, 19;
