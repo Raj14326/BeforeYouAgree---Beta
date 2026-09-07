@@ -22,6 +22,8 @@ test.describe('User Story 3 - identify and display risky clauses', () => {
   test('AC 3.2.2 shows highlighted clauses on the site', async ({ page }) => {
     await openApp(page)
     await analyseTerms(page)
+    // The raw document text is folded by default; open it to read clauses in context.
+    await page.getByRole('button', { name: 'Show full document text' }).click()
     await expect(page.locator('pre mark.clause-mark')).toBeVisible()
   })
 

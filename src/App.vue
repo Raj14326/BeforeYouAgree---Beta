@@ -122,6 +122,8 @@ const analysisErrors = ref<Record<string, string>>({})
 const analysingTerm = ref<string | null>(null)
 const failedBrandIcons = ref<Record<string, boolean>>({})
 const documentViews = ref<Record<string, string>>({})
+/** Term whose full raw document text is expanded; all others stay folded. */
+const openDocumentTerm = ref<string | null>(null)
 const theme = ref<'light' | 'dark'>(
   document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
 )
@@ -255,6 +257,7 @@ async function selectService(service: Service) {
   retrievalErrors.value = {}
   analyses.value = {}
   documentViews.value = {}
+  openDocumentTerm.value = null
   findingFilters.value = {}
   analysisErrors.value = {}
   openHistoryTerm.value = null
@@ -301,6 +304,7 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
     delete analyses.value[termType]
     delete findingFilters.value[termType]
     analysisErrors.value[termType] = ''
+    openDocumentTerm.value = null // start folded
     renderDocumentView(termType)
   } catch (cause) {
     retrievalErrors.value[termType] =
@@ -453,10 +457,23 @@ function renderDocumentView(termType: string) {
   documentViews.value[termType] = html
 }
 
-/** Scroll the matching `<mark>` into view and flash it; respects `prefers-reduced-motion`. */
-function scrollToClause(termType: string, finding: RiskFinding) {
+/** Fold or unfold the raw document text for a term (only one stays open at a time). */
+function toggleDocumentView(termType: string) {
+  openDocumentTerm.value = openDocumentTerm.value === termType ? null : termType
+}
+
+/**
+ * Scroll the matching `<mark>` into view and flash it; respects
+ * `prefers-reduced-motion`. Expands the (folded-by-default) document text first
+ * so there is something to scroll to.
+ */
+async function scrollToClause(termType: string, finding: RiskFinding) {
   const index = analyses.value[termType]?.findings.indexOf(finding) ?? -1
   if (index < 0) return
+  if (openDocumentTerm.value !== termType) {
+    openDocumentTerm.value = termType
+    await nextTick()
+  }
   const element = document.getElementById(clauseId(termType, index))
   if (!element) return
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -931,15 +948,44 @@ function markBrandIconFailed(serviceName: string) {
                       Binary automated prediction (risky / not risky); not legal advice.
                     </p>
                   </div>
-                  <p
-                    v-if="analyses[termType]?.riskyClauseCount"
-                    class="text-body-secondary small mb-1"
-                  >
-                    <mark class="clause-mark">Highlighted</mark> passages are the clauses flagged as
-                    risky.
-                  </p>
+                  <!--
+                    Folded by default, the risk summary above is the focus. Users 
+                    open it on demand, and a finding's "Show in text" auto-expands
+                    it (see scrollToClause).
+                  -->
+                  <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+                    <button
+                      type="button"
+                      class="btn btn-sm btn-outline-secondary"
+                      :aria-expanded="openDocumentTerm === termType"
+                      :aria-controls="`document-view-${termType}`"
+                      @click="toggleDocumentView(termType)"
+                    >
+                      <i
+                        class="bi me-1"
+                        :class="
+                          openDocumentTerm === termType ? 'bi-chevron-down' : 'bi-chevron-right'
+                        "
+                        aria-hidden="true"
+                      ></i>
+                      {{
+                        openDocumentTerm === termType
+                          ? 'Hide full document text'
+                          : 'Show full document text'
+                      }}
+                    </button>
+                    <span
+                      v-if="analyses[termType]?.riskyClauseCount"
+                      class="text-body-secondary small"
+                    >
+                      <mark class="clause-mark">Highlighted</mark> passages are the clauses flagged
+                      as risky.
+                    </span>
+                  </div>
                   <pre
-                    class="border rounded bg-body-tertiary p-3 mb-0"
+                    v-show="openDocumentTerm === termType"
+                    :id="`document-view-${termType}`"
+                    class="border rounded bg-body-tertiary p-3 mb-0 mt-2"
                     tabindex="0"
                     aria-label="Retrieved document text with risky clauses highlighted"
                     style="max-height: 420px; overflow: auto; white-space: pre-wrap"
