@@ -775,10 +775,40 @@ function markBrandIconFailed(serviceName: string) {
                     >
                     <span>{{ retrievals[termType]?.repository }}</span>
                   </div>
-                  <div class="d-flex align-items-center gap-2 mb-2">
+                  <div class="mb-2">
+                    <!-- Before the first run, present the analysis as the card -->
+                    <div
+                      v-if="!analyses[termType]"
+                      class="analyse-cta border rounded p-3 d-flex flex-wrap align-items-center gap-3"
+                    >
+                      <i class="bi bi-shield-check analyse-cta-icon" aria-hidden="true"></i>
+                      <div class="flex-grow-1" style="min-width: 200px">
+                        <div class="fw-semibold">Check this document for risky clauses</div>
+                        <div class="small text-body-secondary">
+                          Scan every clause and flag the ones the model predicts could work against
+                          you.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        class="btn btn-primary btn-lg analyse-cta-btn"
+                        :disabled="Boolean(analysingTerm)"
+                        @click="analyseTerm(termType)"
+                      >
+                        <span
+                          v-if="analysingTerm === termType"
+                          class="spinner-border spinner-border-sm me-2"
+                        ></span>
+                        <i v-else class="bi bi-search me-2" aria-hidden="true"></i>
+                        {{ analysingTerm === termType ? 'Analysing…' : 'Analyse risks' }}
+                      </button>
+                    </div>
+
+                    <!-- Once results are on screen, turn it low profile. -->
                     <button
+                      v-else
                       type="button"
-                      class="btn btn-sm btn-primary"
+                      class="btn btn-sm btn-outline-primary"
                       :disabled="Boolean(analysingTerm)"
                       @click="analyseTerm(termType)"
                     >
@@ -786,13 +816,8 @@ function markBrandIconFailed(serviceName: string) {
                         v-if="analysingTerm === termType"
                         class="spinner-border spinner-border-sm me-1"
                       ></span>
-                      {{
-                        analysingTerm === termType
-                          ? 'Analysing…'
-                          : analyses[termType]
-                            ? 'Analyse again'
-                            : 'Analyse risks'
-                      }}
+                      <i v-else class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>
+                      {{ analysingTerm === termType ? 'Analysing…' : 'Analyse again' }}
                     </button>
                   </div>
                   <div v-if="analysisErrors[termType]" class="alert alert-danger py-2">
