@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * App.vue: the entire Before You Agree user interface.
+ * App.vue: the main Before You Agree user interface.
  *
- * A single-component app: search for a service, list its policy documents,
+ * Search for a service, list its policy documents,
  * retrieve one document's text (latest or an archived version), run the risk
  * analysis, and read the flagged clauses in context.
  *
@@ -23,6 +23,7 @@
 
 import { computed, nextTick, onMounted, ref } from 'vue'
 import logoUrl from './assets/BYA_logo.png'
+import QuickGuide from './components/QuickGuide.vue'
 
 // ---------------------------------------------------------------------------
 // 1. Types: mirror the JSON returned by server/index.ts
@@ -53,15 +54,12 @@ type Retrieval = {
 }
 type RiskFinding = {
   text: string
-  riskProbability: number
   predictedLabel: 'risky' | 'not_risky'
 }
 type Analysis = {
   model: string
-  threshold: number
   clauseCount: number
   riskyClauseCount: number
-  overallRiskScore: number
   findings: RiskFinding[]
 }
 
@@ -368,13 +366,6 @@ function labelCount(termType: string, label: RiskFinding['predictedLabel']) {
   )
 }
 
-/** Confidence in the *predicted* label as a percentage (so a not-risky prediction shows 1 − p). */
-function confidencePercent(finding: RiskFinding) {
-  const probability =
-    finding.predictedLabel === 'risky' ? finding.riskProbability : 1 - finding.riskProbability
-  return Math.round(probability * 100)
-}
-
 /** Percentage of analysed clauses flagged risky, for the progress bar. */
 function flaggedShare(termType: string) {
   const analysis = analyses.value[termType]
@@ -388,11 +379,6 @@ function severityClass(termType: string) {
   if (share >= 25) return 'bg-danger'
   if (share >= 10) return 'bg-warning'
   return 'bg-success'
-}
-
-/** The analysis `overallRiskScore` (mean confidence of the risky clauses) rounded to a whole percent. */
-function avgConfidence(termType: string) {
-  return Math.round(analyses.value[termType]?.overallRiskScore ?? 0)
 }
 
 /** Stable DOM id for a clause's `<mark>`, so a finding can be scrolled to. Must match {@link renderDocumentView}. */
@@ -559,25 +545,28 @@ function markBrandIconFailed(serviceName: string) {
 </script>
 
 <!--
-  Structure: header (brand + theme toggle) · search form with autocomplete ·
+  Structure: header (brand + quick guide + theme toggle) · search form with autocomplete ·
   results <section> (document table; each row can expand into a version-history
-  picker, an error, or the retrieved-text + risk-analysis panel) · "How it works".
+  picker, an error, or the retrieved-text + risk-analysis panel).
 -->
 <template>
   <header class="border-bottom bg-body sticky-top">
-    <div class="container app-shell py-3 d-flex align-items-center">
+    <div class="container app-shell py-3 d-flex align-items-center flex-wrap gap-2">
       <a href="/" class="brand-lockup" aria-label="Before You Agree - home">
         <img :src="logoUrl" alt="" class="brand-logo" />
         <span class="brand-wordmark">Before You Agree</span>
       </a>
-      <button
-        type="button"
-        class="btn btn-sm btn-outline-secondary ms-auto"
-        :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
-        @click="toggleTheme"
-      >
-        <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
-      </button>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <QuickGuide />
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+          @click="toggleTheme"
+        >
+          <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -877,15 +866,10 @@ function markBrandIconFailed(serviceName: string) {
                         </div>
                       </div>
                       <div class="flex-grow-1" style="min-width: 220px">
-                        <div class="d-flex flex-wrap justify-content-between small mb-1">
-                          <span>
-                            {{ flaggedShare(termType) }}% of
-                            {{ analyses[termType]?.clauseCount }} clauses flagged
-                          </span>
-                          <span class="text-body-secondary">
-                            avg. confidence {{ avgConfidence(termType) }}%
-                          </span>
-                        </div>
+                        <p class="small mb-1">
+                          {{ flaggedShare(termType) }}% of
+                          {{ analyses[termType]?.clauseCount }} clauses flagged
+                        </p>
                         <div
                           class="progress"
                           role="progressbar"
@@ -929,8 +913,7 @@ function markBrandIconFailed(serviceName: string) {
                                 : 'text-bg-success'
                             "
                           >
-                            {{ finding.predictedLabel === 'risky' ? 'Risky' : 'Not risky' }} ·
-                            {{ confidencePercent(finding) }}% confidence
+                            {{ finding.predictedLabel === 'risky' ? 'Risky' : 'Not risky' }}
                           </span>
                           <button
                             v-if="finding.predictedLabel === 'risky'"
@@ -997,15 +980,6 @@ function markBrandIconFailed(serviceName: string) {
           </tbody>
         </table>
       </div>
-    </section>
-
-    <section class="mt-4">
-      <h2 class="h5 fw-bold">How it works</h2>
-      <ol class="text-body-secondary ps-3 mb-0">
-        <li class="mb-1">Search the public catalogue of tracked digital services.</li>
-        <li class="mb-1">Retrieve the current policy text, or pick an archived older version.</li>
-        <li>Analyse the retrieved text to flag the clauses the model predicts are risky.</li>
-      </ol>
     </section>
   </main>
 </template>

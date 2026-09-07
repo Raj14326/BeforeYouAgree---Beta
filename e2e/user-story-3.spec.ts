@@ -8,7 +8,7 @@ test.describe('User Story 3 - identify and display risky clauses', () => {
     await analyseTerms(page)
     await expect(page.getByLabel('View')).toContainText('Risky (1)')
     await page.getByLabel('View').selectOption('not_risky')
-    await expect(page.getByText('Not risky · 100% confidence')).toBeVisible()
+    await expect(page.getByText('Not risky', { exact: true })).toBeVisible()
   })
 
   // AC 3.2.1 - Concerning clauses receive highlight markup.
