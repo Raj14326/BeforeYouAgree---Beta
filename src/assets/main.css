@@ -234,6 +234,46 @@ header.sticky-top {
 }
 
 /* ---------------------------------------------------------------------------
+   "Analyse risks" call-to-action
+   Shown after the document text loads, before the first analysis run, so the
+   core feature reads as the obvious next step rather than a small button.
+--------------------------------------------------------------------------- */
+.analyse-cta {
+  border-color: var(--bs-primary-border-subtle) !important;
+  background-color: var(--bs-primary-bg-subtle);
+}
+
+:root[data-bs-theme='dark'] .analyse-cta {
+  border-color: rgba(129, 140, 248, 0.35) !important;
+  background-color: rgba(129, 140, 248, 0.12);
+}
+
+.analyse-cta-icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--bs-primary);
+}
+
+/* Gentle pulse to draw the eye to the action once, without nagging. */
+@media (prefers-reduced-motion: no-preference) {
+  .analyse-cta-btn {
+    animation: analyse-cta-pulse 2s ease-out 3;
+  }
+}
+
+@keyframes analyse-cta-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--bs-primary-rgb), 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 0.6rem rgba(var(--bs-primary-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--bs-primary-rgb), 0);
+  }
+}
+
+/* ---------------------------------------------------------------------------
    Forms
 --------------------------------------------------------------------------- */
 .form-control:focus,
