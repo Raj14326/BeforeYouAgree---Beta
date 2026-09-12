@@ -6,11 +6,7 @@ example. Final weights are a separate Release asset, not normal Git history.
 
 - [Mentor review (English)](docs/MENTOR_REVIEW.en.md)
 - [Training method and results (English)](docs/TRAINING_METHOD.en.md)
-- [完整训练报告（中文）](docs/TRAINING_REPORT.zh-CN.md)
-- [组员操作手册](docs/TEAM_RUNBOOK.zh-CN.md)
-- [上传到 Leo 的步骤](docs/UPLOAD_TO_LEO.zh-CN.md)
-- [模型配置与训练曲线](model_metadata/)
-- [封存测试结果](ml/reports/bert-multilabel-base-v1/metrics.json)
+
 
 Eight-label test macro-F1 0.7469, micro-F1 0.7479. Website any-positive risk
 precision 0.8047, recall 0.8095, F1 0.8071. See limitations before deployment.
