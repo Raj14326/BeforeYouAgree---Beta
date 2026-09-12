@@ -1,0 +1,48 @@
+{
+  "architectures": [
+    "BertForSequenceClassification"
+  ],
+  "attention_probs_dropout_prob": 0.1,
+  "bos_token_id": 0,
+  "classifier_dropout": null,
+  "dtype": "float32",
+  "eos_token_ids": 0,
+  "hidden_act": "gelu",
+  "hidden_dropout_prob": 0.1,
+  "hidden_size": 768,
+  "id2label": {
+    "0": "limitation_of_liability",
+    "1": "unilateral_termination",
+    "2": "unilateral_change",
+    "3": "content_removal",
+    "4": "contract_by_using",
+    "5": "choice_of_law",
+    "6": "jurisdiction",
+    "7": "arbitration"
+  },
+  "initializer_range": 0.02,
+  "intermediate_size": 3072,
+  "label2id": {
+    "arbitration": 7,
+    "choice_of_law": 5,
+    "content_removal": 3,
+    "contract_by_using": 4,
+    "jurisdiction": 6,
+    "limitation_of_liability": 0,
+    "unilateral_change": 2,
+    "unilateral_termination": 1
+  },
+  "layer_norm_eps": 1e-12,
+  "max_position_embeddings": 512,
+  "model_type": "bert",
+  "num_attention_heads": 12,
+  "num_hidden_layers": 12,
+  "output_past": true,
+  "pad_token_id": 0,
+  "position_embedding_type": "absolute",
+  "problem_type": "multi_label_classification",
+  "transformers_version": "4.57.6",
+  "type_vocab_size": 2,
+  "use_cache": true,
+  "vocab_size": 30522
+}

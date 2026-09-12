@@ -1,0 +1,19 @@
+{
+  "model": "BYA-BERT-20260911T113134Z",
+  "threshold": 0.981491208076477,
+  "experimental": false,
+  "test_sha256": "96df25defbc8354e474926daf9e02b1e8fcb1ee119107ac4817b4fae8c1b21f6",
+  "seconds": 17.977975000001607,
+  "rows": 1600,
+  "risky_precision": 0.8513513513513513,
+  "risky_recall": 0.75,
+  "macro_f1": 0.8876384767991011,
+  "false_positive_rate": 0.015363128491620111,
+  "accuracy": 0.96,
+  "confusion": {
+    "tp": 126,
+    "fp": 22,
+    "fn": 42,
+    "tn": 1410
+  }
+}
