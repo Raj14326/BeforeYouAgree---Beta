@@ -52,3 +52,11 @@ ml/data/unfair_tos/
 ml/data/unfair_tos/**
 ml/train_m006_unfair_tos.py
 ml/sample_policy.txt
+
+# BERT model weights (~438MB) live on Hugging Face Hub, not in git:
+# https://huggingface.co/SH4LAN/bya-legalbert-multilabel-v1-onnx
+# Only the small runtime config (category thresholds) is tracked here.
+!ml/bert-multilabel-base-v1/
+ml/bert-multilabel-base-v1/*
+!ml/bert-multilabel-base-v1/risk_config.json
+!ml/bert-multilabel-base-v1/MODEL_CARD.md

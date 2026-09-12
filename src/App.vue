@@ -52,8 +52,10 @@ type Retrieval = {
   repository: string
   repositoryUrl: string
 }
+type CategoryFinding = { id: string; name: string; score: number }
 type RiskFinding = {
   text: string
+  categories: CategoryFinding[]
   predictedLabel: 'risky' | 'not_risky'
 }
 type Analysis = {
@@ -915,6 +917,13 @@ function markBrandIconFailed(serviceName: string) {
                           >
                             {{ finding.predictedLabel === 'risky' ? 'Risky' : 'Not risky' }}
                           </span>
+                          <span
+                            v-for="category in finding.categories"
+                            :key="category.id"
+                            class="badge text-bg-warning"
+                          >
+                            {{ category.name }}
+                          </span>
                           <button
                             v-if="finding.predictedLabel === 'risky'"
                             type="button"
@@ -928,7 +937,8 @@ function markBrandIconFailed(serviceName: string) {
                       </article>
                     </div>
                     <p class="text-body-secondary small mb-0 mt-2">
-                      Binary automated prediction (risky / not risky); not legal advice.
+                      Automated prediction, labelled by category where applicable; not legal
+                      advice.
                     </p>
                   </div>
                   <!--
