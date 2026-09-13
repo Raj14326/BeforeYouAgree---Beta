@@ -1,0 +1,10 @@
+{
+  "config.json": "7fff324b65bd424194d7cb9b28245cac4760d0adef29185a6e92133b53f59b64",
+  "MODEL_CARD.md": "98ab9be845054e51ee0e0d986aef35a39c363c9134a1649c1a6764dc42cdbbe8",
+  "risk_config.json": "c4c201424a050c0a61d983bbcb4acd7ce3ab220130733275744cede7798c62e8",
+  "special_tokens_map.json": "3c3507f36dff57bce437223db3b3081d1e2b52ec3e56ee55438193ecb2c94dd6",
+  "tokenizer.json": "847285050c1910e4a92172181f990809c82b8c98081d854f45833edd73f171f7",
+  "tokenizer_config.json": "a5c2e5a7b1a29a0702cd28c08a399b5ecc110c263009d17f7e3b415f25905fd8",
+  "training_history.json": "3ff484bfe6440617e3f8f31974381ade14f5f746b35cb7f7fae1163b66a42915",
+  "vocab.txt": "3aaa02f2e3a397eee0f813caa567c87cddab1045a4a6b8ac6261f0cc799efb8f"
+}

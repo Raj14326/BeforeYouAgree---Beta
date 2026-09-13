@@ -1,0 +1,146 @@
+{
+  "model": "BYA-LEGAL-BERT-SMALL-8-20260913T092430Z",
+  "rows": 1600,
+  "seconds": 1.9801586999983556,
+  "test_sha256": "96df25defbc8354e474926daf9e02b1e8fcb1ee119107ac4817b4fae8c1b21f6",
+  "macro_f1": 0.7264273240092423,
+  "micro_precision": 0.6666666666666666,
+  "micro_recall": 0.7955801104972375,
+  "micro_f1": 0.72544080604534,
+  "exact_match": 0.94125,
+  "per_category": {
+    "limitation_of_liability": {
+      "precision": 0.7073170731707317,
+      "recall": 0.7837837837837838,
+      "f1": 0.7435897435897436,
+      "false_positive_rate": 0.007677543186180422,
+      "accuracy": 0.9875,
+      "confusion": {
+        "tp": 29,
+        "fp": 12,
+        "fn": 8,
+        "tn": 1551
+      },
+      "threshold": 0.8244099617004395,
+      "positives": 37
+    },
+    "unilateral_termination": {
+      "precision": 0.7435897435897436,
+      "recall": 0.7837837837837838,
+      "f1": 0.7631578947368421,
+      "false_positive_rate": 0.006397952655150352,
+      "accuracy": 0.98875,
+      "confusion": {
+        "tp": 29,
+        "fp": 10,
+        "fn": 8,
+        "tn": 1553
+      },
+      "threshold": 0.8330909609794617,
+      "positives": 37
+    },
+    "unilateral_change": {
+      "precision": 0.8214285714285714,
+      "recall": 0.6388888888888888,
+      "f1": 0.71875,
+      "false_positive_rate": 0.00319693094629156,
+      "accuracy": 0.98875,
+      "confusion": {
+        "tp": 23,
+        "fp": 5,
+        "fn": 13,
+        "tn": 1559
+      },
+      "threshold": 0.9166957139968872,
+      "positives": 36
+    },
+    "content_removal": {
+      "precision": 0.3055555555555556,
+      "recall": 0.9166666666666666,
+      "f1": 0.4583333333333333,
+      "false_positive_rate": 0.015743073047858942,
+      "accuracy": 0.98375,
+      "confusion": {
+        "tp": 11,
+        "fp": 25,
+        "fn": 1,
+        "tn": 1563
+      },
+      "threshold": 0.3288165032863617,
+      "positives": 12
+    },
+    "contract_by_using": {
+      "precision": 0.9444444444444444,
+      "recall": 0.7391304347826086,
+      "f1": 0.8292682926829268,
+      "false_positive_rate": 0.0006341154090044388,
+      "accuracy": 0.995625,
+      "confusion": {
+        "tp": 17,
+        "fp": 1,
+        "fn": 6,
+        "tn": 1576
+      },
+      "threshold": 0.9189727306365967,
+      "positives": 23
+    },
+    "choice_of_law": {
+      "precision": 0.8,
+      "recall": 0.9230769230769231,
+      "f1": 0.8571428571428571,
+      "false_positive_rate": 0.001890359168241966,
+      "accuracy": 0.9975,
+      "confusion": {
+        "tp": 12,
+        "fp": 3,
+        "fn": 1,
+        "tn": 1584
+      },
+      "threshold": 0.5931439995765686,
+      "positives": 13
+    },
+    "jurisdiction": {
+      "precision": 0.8888888888888888,
+      "recall": 1.0,
+      "f1": 0.9411764705882353,
+      "false_positive_rate": 0.0012626262626262627,
+      "accuracy": 0.99875,
+      "confusion": {
+        "tp": 16,
+        "fp": 2,
+        "fn": 0,
+        "tn": 1582
+      },
+      "threshold": 0.5378946661949158,
+      "positives": 16
+    },
+    "arbitration": {
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "f1": 0.5,
+      "false_positive_rate": 0.008788449466415568,
+      "accuracy": 0.99125,
+      "confusion": {
+        "tp": 7,
+        "fp": 14,
+        "fn": 0,
+        "tn": 1579
+      },
+      "threshold": 0.5769498348236084,
+      "positives": 7
+    }
+  },
+  "derived_binary_risk": {
+    "precision": 0.7700534759358288,
+    "recall": 0.8571428571428571,
+    "f1": 0.8112676056338028,
+    "false_positive_rate": 0.030027932960893854,
+    "accuracy": 0.958125,
+    "confusion": {
+      "tp": 144,
+      "fp": 43,
+      "fn": 24,
+      "tn": 1389
+    }
+  }
+}
