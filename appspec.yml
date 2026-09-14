@@ -1,0 +1,31 @@
+version: 0.0
+os: linux
+
+files:
+  - source: /
+    destination: /opt/bya/app
+    overwrite: true
+
+file_exists_behavior: OVERWRITE
+
+permissions:
+  - object: /opt/bya/app
+    owner: ubuntu
+    group: ubuntu
+    pattern: "**"
+
+hooks:
+  AfterInstall:
+    - location: deploy/install.sh
+      timeout: 900
+      runas: root
+
+  ApplicationStart:
+    - location: deploy/start.sh
+      timeout: 120
+      runas: root
+
+  ValidateService:
+    - location: deploy/validate.sh
+      timeout: 180
+      runas: root
