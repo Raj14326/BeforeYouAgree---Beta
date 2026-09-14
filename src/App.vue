@@ -55,6 +55,10 @@ type Retrieval = {
 type CategoryFinding = { id: string; name: string; score: number }
 type RiskFinding = {
   text: string
+  start: number
+  end: number
+  occurrenceCount: number
+  occurrenceStarts: number[]
   categories: CategoryFinding[]
   predictedLabel: 'risky' | 'not_risky'
 }
@@ -423,9 +427,9 @@ function renderDocumentView(termType: string) {
   const marks = analysis.findings
     .map((finding, index) => ({
       index,
-      start: finding.predictedLabel === 'risky' ? content.indexOf(finding.text) : -1,
-      end: 0,
-      length: finding.text.length,
+      start: finding.predictedLabel === 'risky' ? finding.start : -1,
+      end: finding.end,
+      length: finding.end - finding.start,
     }))
     .filter((mark) => mark.start >= 0)
     .sort((a, b) => a.start - b.start)
@@ -923,6 +927,12 @@ function markBrandIconFailed(serviceName: string) {
                             class="badge text-bg-warning"
                           >
                             {{ category.name }}
+                          </span>
+                          <span
+                            v-if="finding.occurrenceCount > 1"
+                            class="badge text-bg-secondary"
+                          >
+                            Appears {{ finding.occurrenceCount }} times
                           </span>
                           <button
                             v-if="finding.predictedLabel === 'risky'"

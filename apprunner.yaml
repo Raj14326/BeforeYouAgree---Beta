@@ -1,0 +1,17 @@
+version: 1.0
+runtime: nodejs22
+build:
+  commands:
+    build:
+      - npm ci --omit=dev
+run:
+  runtime-version: 22
+  command: npm run server
+  network:
+    port: 8080
+    env: PORT
+  env:
+    - name: HOST
+      value: 0.0.0.0
+    - name: BERT_BATCH_SIZE
+      value: "4"

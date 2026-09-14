@@ -1,7 +1,7 @@
 /**
  * BERT clause category classifier: inference only.
  *
- * Fine-tuned `nlpaueb/legal-bert-base-uncased` (LexGLUE UNFAIR-ToS, 8 unfairness
+ * Fine-tuned LEGAL-BERT Small (LexGLUE UNFAIR-ToS, 8 unfairness
  * categories, multi-label). This module never trains; it loads the exported ONNX
  * checkpoint once, lazily, and scores clause text against it.
  *
@@ -19,16 +19,21 @@ import {
   type PreTrainedModel,
   type PreTrainedTokenizer,
 } from '@huggingface/transformers'
+import { splitClauses, type Clause } from './clauses.ts'
+import { detectPrivacyRisks } from './privacy-rules.ts'
 
 /**
- * The ~438MB ONNX weights live on the Hugging Face Hub, not in this repo (well
- * past GitHub's 100MB file limit). transformers.js downloads them from there on
- * first use and caches them under `ml/.cache/` for every run after.
+ * The ONNX weights are installed locally so inference does not wait for
+ * a Hugging Face download. Override the directory with `BERT_MODEL_DIR`.
  */
-const MODEL_REPO = 'SH4LAN/bya-legalbert-multilabel-v1-onnx'
-env.cacheDir = resolve('ml/.cache')
+const MODEL_PATH = resolve(
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
+)
+env.allowRemoteModels = false
 
-const RISK_CONFIG_PATH = resolve('ml/bert-multilabel-base-v1/risk_config.json')
+const RISK_CONFIG_PATH = resolve(
+  process.env.BERT_RISK_CONFIG || resolve(MODEL_PATH, 'risk_config.json'),
+)
 
 type CategoryLabel = { id: string; name: string }
 type RiskConfig = {
@@ -48,6 +53,10 @@ export type CategoryFinding = {
 /** One clause together with the model's category predictions for it. */
 export type RiskFinding = {
   text: string
+  start: number
+  end: number
+  occurrenceCount: number
+  occurrenceStarts: number[]
   categories: CategoryFinding[]
   predictedLabel: 'not_risky' | 'risky'
 }
@@ -64,8 +73,11 @@ let cachedModel: { tokenizer: PreTrainedTokenizer; model: PreTrainedModel } | un
 async function model() {
   if (!cachedModel) {
     const [tokenizer, loaded] = await Promise.all([
-      AutoTokenizer.from_pretrained(MODEL_REPO),
-      AutoModelForSequenceClassification.from_pretrained(MODEL_REPO, { dtype: 'fp32' }),
+      AutoTokenizer.from_pretrained(MODEL_PATH, { local_files_only: true }),
+      AutoModelForSequenceClassification.from_pretrained(MODEL_PATH, {
+        dtype: 'fp32',
+        local_files_only: true,
+      }),
     ])
     cachedModel = { tokenizer, model: loaded }
   }
@@ -83,12 +95,10 @@ function sigmoid(x: number) {
  * descending score. Empty when no category fired (i.e. the clause isn't risky).
  */
 export async function scoreClauseWithBert(text: string): Promise<CategoryFinding[]> {
-  const config = riskConfig()
-  const { tokenizer, model: loaded } = await model()
-  const inputs = await tokenizer(text, { truncation: true, max_length: 128 })
-  const output = await loaded(inputs)
-  const logits = Array.from(output.logits.data as Float32Array)
+  return (await scoreClausesWithBert([text]))[0]!
+}
 
+function categoriesFromLogits(logits: number[], config: RiskConfig) {
   const categories: CategoryFinding[] = []
   config.labels.forEach((label, index) => {
     const score = sigmoid(logits[index])
@@ -99,16 +109,47 @@ export async function scoreClauseWithBert(text: string): Promise<CategoryFinding
   return categories.sort((a, b) => b.score - a.score)
 }
 
-/**
- * Split a document into candidate clauses. Identical to the M006 segmenter:
- * breaks on blank lines and on sentence-ending punctuation, then keeps only
- * fragments that look like real prose.
- */
-function segments(content: string) {
-  return content
-    .split(/(?:\r?\n){2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
-    .map((text) => text.trim())
-    .filter((text) => text.length >= 20 && (text.match(/[a-z]/gi)?.length ?? 0) >= 10)
+/** Score clauses in configurable batches; small CPU batches often avoid padding waste. */
+async function scoreClausesWithBert(texts: string[]) {
+  const config = riskConfig()
+  const { tokenizer, model: loaded } = await model()
+  const results: CategoryFinding[][] = []
+  const configuredBatchSize = Number(process.env.BERT_BATCH_SIZE || 1)
+  const batchSize = Number.isInteger(configuredBatchSize)
+    ? Math.min(32, Math.max(1, configuredBatchSize))
+    : 1
+  for (let start = 0; start < texts.length; start += batchSize) {
+    const batch = texts.slice(start, start + batchSize)
+    const inputs = await tokenizer(batch, { truncation: true, padding: true, max_length: 128 })
+    const output = await loaded(inputs)
+    const values = Array.from(output.logits.data as Float32Array)
+    for (let index = 0; index < batch.length; index++) {
+      const offset = index * config.labels.length
+      results.push(categoriesFromLogits(values.slice(offset, offset + config.labels.length), config))
+    }
+  }
+  return results
+}
+
+function normalizedClause(text: string) {
+  return text.toLocaleLowerCase('en').replace(/\s+/g, ' ').trim()
+}
+
+type ClauseGroup = { clause: Clause; occurrenceStarts: number[] }
+
+/** Merge source repetitions before inference while retaining their exact offsets. */
+function uniqueClauses(content: string) {
+  const sourceClauses = splitClauses(content).filter(
+    ({ text }) => text.length >= 20 && (text.match(/[a-z]/gi)?.length ?? 0) >= 10,
+  )
+  const groups = new Map<string, ClauseGroup>()
+  for (const clause of sourceClauses) {
+    const key = normalizedClause(clause.text)
+    const existing = groups.get(key)
+    if (existing) existing.occurrenceStarts.push(clause.start)
+    else groups.set(key, { clause, occurrenceStarts: [clause.start] })
+  }
+  return { sourceClauseCount: sourceClauses.length, groups: [...groups.values()] }
 }
 
 /**
@@ -118,17 +159,31 @@ function segments(content: string) {
  */
 export async function analyzeWithBert(content: string) {
   const config = riskConfig()
-  const clauses = segments(content)
-  const findings: RiskFinding[] = []
-  for (const text of clauses) {
-    const categories = await scoreClauseWithBert(text)
-    findings.push({ text, categories, predictedLabel: categories.length ? 'risky' : 'not_risky' })
-  }
+  const { sourceClauseCount, groups } = uniqueClauses(content)
+  const modelCategories = await scoreClausesWithBert(groups.map(({ clause }) => clause.text))
+  const findings = groups.map(({ clause, occurrenceStarts }, index): RiskFinding => {
+    const byId = new Map<string, CategoryFinding>()
+    for (const category of [...modelCategories[index]!, ...detectPrivacyRisks(clause.text)]) {
+      byId.set(category.id, category)
+    }
+    const categories = [...byId.values()]
+    return {
+      text: clause.text,
+      start: clause.start,
+      end: clause.end,
+      occurrenceCount: occurrenceStarts.length,
+      occurrenceStarts,
+      categories,
+      predictedLabel: categories.length ? 'risky' : 'not_risky',
+    }
+  })
   const riskyFindings = findings.filter((finding) => finding.predictedLabel === 'risky')
   return {
     model: config.model_id,
-    clauseCount: clauses.length,
+    clauseCount: findings.length,
+    sourceClauseCount,
     riskyClauseCount: riskyFindings.length,
+    coverage: 'complete' as const,
     findings,
   }
 }

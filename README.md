@@ -6,15 +6,28 @@
 
 <h1 align="left">Before You Agree</h1>
 
-Before You Agree retrieves terms and privacy policies, then classifies each clause as
-`risky` or `not_risky`.
+Before You Agree retrieves terms and privacy policies, then uses a fine-tuned
+LEGAL-BERT model to classify each clause across eight potentially unfair Terms of
+Service categories.
 
 ## Run with npm
 
 Requirements: Node.js 22–26 and npm.
 
-```sh
+```powershell
 npm install
+```
+
+The Node API loads the ONNX model entirely from
+`ml/local-models/bya-legalbert-small-unfair-tos/`. The directory must contain
+the tokenizer/config files and `onnx/model.onnx`. The FP32 model is about 134 MB,
+remains outside Git, and is packaged into the AWS container image through
+`Dockerfile.aws`. Set `BERT_MODEL_DIR` to use a different local directory.
+Remote model downloads are disabled at runtime.
+
+Start the website and Node API:
+
+```powershell
 npm run dev:full
 ```
 
@@ -58,7 +71,7 @@ Health check: /api/health
 | `GET` | `/api/versions/:serviceId/:documentId` | List archived document versions |
 | `GET` | `/api/version/:serviceId/:documentId/latest` | Retrieve the latest document text |
 | `GET` | `/api/version/:serviceId/:documentId/:commitSha` | Retrieve an archived document version |
-| `POST` | `/api/analyze` | Classify document clauses with M006 |
+| `POST` | `/api/analyze` | Classify document clauses with LEGAL-BERT |
 
 Example analysis request:
 
@@ -72,13 +85,20 @@ Example analysis request:
 
 ## Model
 
-The application uses a character 3–5 gram Multinomial Naive Bayes
-classifier. It predicts one of two labels for each clause:
+The application uses a fine-tuned LEGAL-BERT Small checkpoint. Each clause can
+receive any of these labels:
 
-- `risky`
-- `not_risky`
+- limitation of liability
+- unilateral termination
+- unilateral change
+- content removal
+- contract by using
+- choice of law
+- jurisdiction
+- arbitration
 
-The inference code is in `server/m006-model.ts`. The trained parameters are stored in
-`ml/M006_best_model_package/M006_model.json` and are loaded directly by the Node API.
+The Node inference code is in `server/bert-model.ts` and loads the local ONNX
+checkpoint directly. Model weights remain outside Git and are distributed in
+the AWS container image.
 
 The results are automated predictions and are not legal advice.

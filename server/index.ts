@@ -32,6 +32,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { htmlToPlainText } from './html-to-plain-text.ts'
 import { analyzeWithBert } from './bert-model.ts'
+import { ensureModelAvailable } from './model-storage.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -97,7 +98,7 @@ const server = http.createServer(async (request, response) => {
         status: 'ok',
         source: 'tosdr',
         upstream: TOSDR_API,
-        model: 'BYA-LEGAL-BERT-BASE-8 fine-tuned classifier',
+        model: 'BYA LegalBERT Small eight-label classifier',
       })
     }
     if (request.method === 'POST' && url.pathname === '/api/analyze') {
@@ -177,6 +178,8 @@ function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>
     request.on('error', reject)
   })
 }
+
+await ensureModelAvailable()
 
 server.listen(PORT, HOST, () => {
   console.log(`Before You Agree ToS;DR API listening on http://${HOST}:${PORT}`)
