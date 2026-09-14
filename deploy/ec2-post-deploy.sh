@@ -5,8 +5,9 @@ APP_DIR="/opt/bya/app"
 
 cd "$APP_DIR"
 
-npm ci
-npm run build
+# Amplify builds the browser application. This EC2 host runs only the API, so
+# install runtime dependencies without running the memory-intensive Vue build.
+npm ci --omit=dev
 
 chown -R ubuntu:ubuntu "$APP_DIR"
 mkdir -p /opt/bya/model
