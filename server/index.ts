@@ -9,7 +9,8 @@
  *    (`api.tosdr.org`).
  *  - Serve dated historical versions of those documents from the **Open Terms
  *    Archive** `contrib-versions` repo on GitHub.
- *  - Run clause risk analysis locally via the M006 model (`m006-model.ts`).
+ *  - Run clause risk analysis locally via the fine-tuned LegalBERT model
+ *    (`bert-model.ts`).
  *  - Be a good upstream citizen: in-memory response caching, a per-IP rate
  *    limit, request-size limits, and an allow-listed CORS policy.
  *
@@ -30,7 +31,7 @@ import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
 import { htmlToPlainText } from './html-to-plain-text.ts'
-import { analyzeWithM006 } from './m006-model.ts'
+import { analyzeWithBert } from './bert-model.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -96,7 +97,7 @@ const server = http.createServer(async (request, response) => {
         status: 'ok',
         source: 'tosdr',
         upstream: TOSDR_API,
-        model: "Leo's M006 Naive Bayes classifier",
+        model: 'BYA-LEGAL-BERT-BASE-8 fine-tuned classifier',
       })
     }
     if (request.method === 'POST' && url.pathname === '/api/analyze') {
@@ -140,7 +141,7 @@ const server = http.createServer(async (request, response) => {
 })
 
 /**
- * `POST /api/analyze`: classify a document's clauses with the local M006 model.
+ * `POST /api/analyze`: classify a document's clauses with the local BERT model.
  *
  * Body: `{ content: string, serviceName?: string, documentType?: string }`.
  * Rejects empty content (400) and content over 500 kB (413). No upstream calls.
@@ -151,15 +152,7 @@ async function analyzeDocument(request: IncomingMessage, response: ServerRespons
   if (!content) return sendJson(response, 400, { error: 'Document content is required.' })
   if (content.length > 500_000)
     return sendJson(response, 413, { error: 'Document is too large to analyze.' })
-  return sendJson(
-    response,
-    200,
-    analyzeWithM006(
-      content,
-      typeof body.serviceName === 'string' ? body.serviceName : '',
-      typeof body.documentType === 'string' ? body.documentType : '',
-    ),
-  )
+  return sendJson(response, 200, await analyzeWithBert(content))
 }
 
 /**
