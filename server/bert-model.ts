@@ -21,6 +21,7 @@ import {
 } from '@huggingface/transformers'
 import { splitClauses, type Clause } from './clauses.ts'
 import { detectPrivacyRisks } from './privacy-rules.ts'
+import { classifyRiskLevel, type RiskLevel } from './risk-level.ts'
 
 /**
  * The ONNX weights are installed locally so inference does not wait for
@@ -59,6 +60,10 @@ export type RiskFinding = {
   occurrenceStarts: number[]
   categories: CategoryFinding[]
   predictedLabel: 'not_risky' | 'risky'
+  riskLevel: RiskLevel
+  riskLevelMessage: string
+  /** Categories whose score was close enough to its threshold to warrant a human look. */
+  reviewCategories: string[]
 }
 
 let cachedConfig: RiskConfig | undefined
@@ -95,17 +100,27 @@ function sigmoid(x: number) {
  * descending score. Empty when no category fired (i.e. the clause isn't risky).
  */
 export async function scoreClauseWithBert(text: string): Promise<CategoryFinding[]> {
-  return (await scoreClausesWithBert([text]))[0]!
+  const scores = (await scoreClausesWithBert([text]))[0]!
+  return categoriesFromScores(scores, riskConfig())
 }
 
-function categoriesFromLogits(logits: number[], config: RiskConfig) {
-  const categories: CategoryFinding[] = []
+/** Sigmoid score for every category, keyed by category id, ahead of thresholding. */
+function scoresFromLogits(logits: number[], config: RiskConfig) {
+  const scores: Record<string, number> = {}
   config.labels.forEach((label, index) => {
-    const score = sigmoid(logits[index])
-    if (score >= config.thresholds[label.id]) {
+    scores[label.id] = sigmoid(logits[index])
+  })
+  return scores
+}
+
+function categoriesFromScores(scores: Record<string, number>, config: RiskConfig) {
+  const categories: CategoryFinding[] = []
+  for (const label of config.labels) {
+    const score = scores[label.id]!
+    if (score >= config.thresholds[label.id]!) {
       categories.push({ id: label.id, name: label.name, score: Number(score.toFixed(6)) })
     }
-  })
+  }
   return categories.sort((a, b) => b.score - a.score)
 }
 
@@ -113,7 +128,7 @@ function categoriesFromLogits(logits: number[], config: RiskConfig) {
 async function scoreClausesWithBert(texts: string[]) {
   const config = riskConfig()
   const { tokenizer, model: loaded } = await model()
-  const results: CategoryFinding[][] = []
+  const results: Record<string, number>[] = []
   const configuredBatchSize = Number(process.env.BERT_BATCH_SIZE || 1)
   const batchSize = Number.isInteger(configuredBatchSize)
     ? Math.min(32, Math.max(1, configuredBatchSize))
@@ -125,7 +140,7 @@ async function scoreClausesWithBert(texts: string[]) {
     const values = Array.from(output.logits.data as Float32Array)
     for (let index = 0; index < batch.length; index++) {
       const offset = index * config.labels.length
-      results.push(categoriesFromLogits(values.slice(offset, offset + config.labels.length), config))
+      results.push(scoresFromLogits(values.slice(offset, offset + config.labels.length), config))
     }
   }
   return results
@@ -160,13 +175,30 @@ function uniqueClauses(content: string) {
 export async function analyzeWithBert(content: string) {
   const config = riskConfig()
   const { sourceClauseCount, groups } = uniqueClauses(content)
-  const modelCategories = await scoreClausesWithBert(groups.map(({ clause }) => clause.text))
+  const modelScores = await scoreClausesWithBert(groups.map(({ clause }) => clause.text))
   const findings = groups.map(({ clause, occurrenceStarts }, index): RiskFinding => {
+    const scores = modelScores[index]!
+    const privacyFindings = detectPrivacyRisks(clause.text)
     const byId = new Map<string, CategoryFinding>()
-    for (const category of [...modelCategories[index]!, ...detectPrivacyRisks(clause.text)]) {
+    for (const category of [...categoriesFromScores(scores, config), ...privacyFindings]) {
       byId.set(category.id, category)
     }
     const categories = [...byId.values()]
+
+    // Privacy rules are deterministic pattern matches with no tuned threshold
+    // of their own; a hit is at least as confident as a model score clearing
+    // its threshold, so it is scored as a threshold of 0.
+    const riskThresholds = { ...config.thresholds }
+    const riskScores = { ...scores }
+    for (const finding of privacyFindings) {
+      riskScores[finding.id] = finding.score
+      riskThresholds[finding.id] = 0
+    }
+    const { riskLevel, riskLevelMessage, reviewCategories } = classifyRiskLevel(
+      riskScores,
+      riskThresholds,
+    )
+
     return {
       text: clause.text,
       start: clause.start,
@@ -175,6 +207,9 @@ export async function analyzeWithBert(content: string) {
       occurrenceStarts,
       categories,
       predictedLabel: categories.length ? 'risky' : 'not_risky',
+      riskLevel,
+      riskLevelMessage,
+      reviewCategories,
     }
   })
   const riskyFindings = findings.filter((finding) => finding.predictedLabel === 'risky')

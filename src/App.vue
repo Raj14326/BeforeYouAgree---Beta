@@ -53,6 +53,7 @@ type Retrieval = {
   repositoryUrl: string
 }
 type CategoryFinding = { id: string; name: string; score: number }
+type RiskLevel = 'low' | 'medium' | 'high'
 type RiskFinding = {
   text: string
   start: number
@@ -61,6 +62,9 @@ type RiskFinding = {
   occurrenceStarts: number[]
   categories: CategoryFinding[]
   predictedLabel: 'risky' | 'not_risky'
+  riskLevel: RiskLevel
+  riskLevelMessage: string
+  reviewCategories: string[]
 }
 type Analysis = {
   model: string
@@ -385,6 +389,19 @@ function severityClass(termType: string) {
   if (share >= 25) return 'bg-danger'
   if (share >= 10) return 'bg-warning'
   return 'bg-success'
+}
+
+/** Bootstrap badge colour for a clause's model-detected risk level. */
+function riskLevelBadgeClass(riskLevel: RiskLevel) {
+  if (riskLevel === 'high') return 'text-bg-danger'
+  if (riskLevel === 'medium') return 'text-bg-warning'
+  return 'text-bg-success'
+}
+
+const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {
+  high: 'High risk',
+  medium: 'Medium risk',
+  low: 'Low risk',
 }
 
 /** Stable DOM id for a clause's `<mark>`, so a finding can be scrolled to. Must match {@link renderDocumentView}. */
@@ -913,13 +930,10 @@ function markBrandIconFailed(serviceName: string) {
                         <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                           <span
                             class="badge"
-                            :class="
-                              finding.predictedLabel === 'risky'
-                                ? 'text-bg-danger'
-                                : 'text-bg-success'
-                            "
+                            :class="riskLevelBadgeClass(finding.riskLevel)"
+                            :title="finding.riskLevelMessage"
                           >
-                            {{ finding.predictedLabel === 'risky' ? 'Risky' : 'Not risky' }}
+                            {{ RISK_LEVEL_LABELS[finding.riskLevel] }}
                           </span>
                           <span
                             v-for="category in finding.categories"
