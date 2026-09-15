@@ -525,16 +525,25 @@ function formatVersionDate(value?: string) {
 
 /**
  * Read `key` from {@link responseCache} if it is still fresh, otherwise run
- * `loader`, store the result for `ttl` ms, and return it. Failed loads are not
- * cached. The cache is unbounded but entries are effectively self-limiting given
- * the small, fixed set of upstream paths.
+ * `loader`, store the result for `ttl` ms, and return it. If `loader` throws and
+ * a stale (expired) entry for `key` exists, that stale value is served instead
+ * of propagating the error — this keeps read endpoints up during a transient
+ * upstream outage (e.g. a ToS;DR rate limit) instead of amplifying it with
+ * every incoming request retrying the failing upstream call. Only successful
+ * loads refresh the cache. The cache is unbounded but entries are effectively
+ * self-limiting given the small, fixed set of upstream paths.
  */
 async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
   const cached = responseCache.get(key)
   if (cached?.expiresAt && cached.expiresAt > Date.now()) return cached.value as T
-  const value = await loader()
-  responseCache.set(key, { expiresAt: Date.now() + ttl, value })
-  return value
+  try {
+    const value = await loader()
+    responseCache.set(key, { expiresAt: Date.now() + ttl, value })
+    return value
+  } catch (error) {
+    if (cached) return cached.value as T
+    throw error
+  }
 }
 
 /** Map a failed ToS;DR response to a client-facing error (404/422 → 4xx, 429 → 503). */
