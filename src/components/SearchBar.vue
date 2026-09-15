@@ -1,0 +1,176 @@
+<script setup lang="ts">
+/**
+ * SearchBar.vue: the always-visible service search (chunk 1).
+ *
+ * Owns its own autocomplete UI state (query, open dropdown, keyboard nav) and
+ * a debounced remote search against `/api/services`. Reports back to the
+ * parent only when a service should be loaded, via the `select` emit.
+ */
+import { computed, ref } from 'vue'
+import { apiUrl } from '@/lib/api'
+import type { Service } from '@/types'
+import BrandAvatar from './BrandAvatar.vue'
+
+const { services, isCatalogueLoading, isServiceLoading, catalogueIsFallback } = defineProps<{
+  services: Service[]
+  isCatalogueLoading: boolean
+  isServiceLoading: boolean
+  catalogueIsFallback: boolean
+}>()
+
+const emit = defineEmits<{
+  select: [service: Service]
+}>()
+
+const query = ref('')
+const isOpen = ref(false)
+const activeIndex = ref(-1)
+const error = ref('')
+/** Server search results override `services` while the user is typing 2+ chars. */
+const searchResults = ref<Service[] | null>(null)
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+
+/** Up to 10 services matching the current query (or the first 10 when empty). */
+const suggestions = computed(() => {
+  const pool = searchResults.value ?? services
+  const needle = query.value.trim().toLowerCase()
+  if (!needle) return pool.slice(0, 10)
+  return pool.filter((service) => service.name.toLowerCase().includes(needle)).slice(0, 10)
+})
+
+/** On each keystroke: open the dropdown, clear any selection, and debounce a search by 250 ms (min 2 chars). */
+function handleInput() {
+  isOpen.value = true
+  activeIndex.value = -1
+  error.value = ''
+  clearTimeout(searchTimer)
+  const needle = query.value.trim()
+  if (needle.length < 2) {
+    searchResults.value = null
+    return
+  }
+  searchTimer = setTimeout(() => searchServices(needle), 250)
+}
+
+/**
+ * Replace the suggestion pool with server-side search results for `needle`.
+ * Stale responses (the query moved on) and upstream failures are ignored,
+ * keeping the last good results on screen.
+ */
+async function searchServices(needle: string) {
+  try {
+    const response = await fetch(
+      apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`),
+    )
+    if (!response.ok) return
+    const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
+    if (query.value.trim() === needle) {
+      searchResults.value = payload.data.map((service) => ({
+        name: service.name,
+        path: service.id,
+      }))
+    }
+  } catch {
+    // Keep the last successful results while upstream search is unavailable.
+  }
+}
+
+/** Keyboard navigation for the suggestions dropdown: Up/Down move, Enter selects, Escape closes. */
+function handleKeydown(event: KeyboardEvent) {
+  if (!isOpen.value || !suggestions.value.length) return
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    activeIndex.value = Math.min(activeIndex.value + 1, suggestions.value.length - 1)
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    activeIndex.value = Math.max(activeIndex.value - 1, 0)
+  } else if (event.key === 'Enter' && activeIndex.value >= 0) {
+    event.preventDefault()
+    const service = suggestions.value[activeIndex.value]
+    if (service) selectService(service)
+  } else if (event.key === 'Escape') {
+    isOpen.value = false
+  }
+}
+
+/** Handle the search form submit: pick an exact name match, else the top suggestion, else show an error. */
+function submitSearch() {
+  const pool = searchResults.value ?? services
+  const exact = pool.find((service) => service.name.toLowerCase() === query.value.trim().toLowerCase())
+  const service = exact ?? suggestions.value[0]
+  if (service) selectService(service)
+  else error.value = 'No matching service is currently available from ToS;DR.'
+}
+
+function selectService(service: Service) {
+  query.value = service.name
+  isOpen.value = false
+  activeIndex.value = -1
+  error.value = ''
+  emit('select', service)
+}
+</script>
+
+<template>
+  <form class="card card-body shadow-sm search-bar" @submit.prevent="submitSearch">
+    <label for="service" class="form-label fw-medium">Service</label>
+    <div class="row g-2">
+      <div class="col position-relative">
+        <div class="input-group input-group-lg">
+          <span class="input-group-text"><i class="bi bi-search"></i></span>
+          <input
+            id="service"
+            v-model="query"
+            class="form-control"
+            type="text"
+            autocomplete="off"
+            placeholder="e.g. Google, Spotify, Discord"
+            @input="handleInput"
+            @focus="isOpen = true"
+            @blur="isOpen = false"
+            @keydown="handleKeydown"
+          />
+        </div>
+        <ul
+          v-if="isOpen && suggestions.length"
+          class="list-group position-absolute w-100 mt-1 shadow"
+          style="z-index: 1000; max-height: 260px; overflow-y: auto"
+        >
+          <li
+            v-for="(service, index) in suggestions"
+            :key="service.path"
+            class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+            :class="{ active: index === activeIndex }"
+            style="cursor: pointer"
+            @mousedown.prevent="selectService(service)"
+          >
+            <BrandAvatar :service-name="service.name" />
+            <span class="flex-grow-1">{{ service.name }}</span>
+            <i class="bi bi-chevron-right small text-body-secondary"></i>
+          </li>
+        </ul>
+      </div>
+      <div class="col-auto">
+        <button
+          type="submit"
+          class="btn btn-primary btn-lg"
+          :disabled="isCatalogueLoading || isServiceLoading"
+        >
+          <span v-if="isServiceLoading" class="spinner-border spinner-border-sm me-1"></span>
+          {{ isServiceLoading ? 'Retrieving…' : 'Review terms' }}
+        </button>
+      </div>
+    </div>
+
+    <p class="form-text mb-0 mt-2">
+      <span v-if="isCatalogueLoading">
+        <span class="spinner-border spinner-border-sm"></span> Loading service list…
+      </span>
+      <span v-else>
+        {{ services.length }} services from ToS;DR
+        <span v-if="catalogueIsFallback" class="badge text-bg-secondary ms-1">offline list</span>
+      </span>
+    </p>
+    <div v-if="error" class="alert alert-warning mt-2 mb-0 py-2" role="alert">{{ error }}</div>
+  </form>
+</template>

@@ -91,7 +91,46 @@ main section,
 }
 
 .app-shell {
-  max-width: 820px; /* keeps text lines readable */
+  max-width: 1240px; /* wide enough for the preference sidebar + main column */
+}
+
+/* ---------------------------------------------------------------------------
+   Layout grid: risk-preference sidebar (chunk 5) beside the main column
+   (search, service cards, clauses, original document — chunks 1-4).
+--------------------------------------------------------------------------- */
+.layout-grid {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  align-items: start;
+  gap: 1.5rem;
+}
+
+.main-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+
+.document-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.risk-preference-sidebar {
+  position: sticky;
+  top: 5rem;
+}
+
+@media (max-width: 991.98px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .risk-preference-sidebar {
+    position: static;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -234,46 +273,6 @@ header.sticky-top {
 }
 
 /* ---------------------------------------------------------------------------
-   "Analyse risks" call-to-action
-   Shown after the document text loads, before the first analysis run, so the
-   core feature reads as the obvious next step rather than a small button.
---------------------------------------------------------------------------- */
-.analyse-cta {
-  border-color: var(--bs-primary-border-subtle) !important;
-  background-color: var(--bs-primary-bg-subtle);
-}
-
-:root[data-bs-theme='dark'] .analyse-cta {
-  border-color: rgba(129, 140, 248, 0.35) !important;
-  background-color: rgba(129, 140, 248, 0.12);
-}
-
-.analyse-cta-icon {
-  font-size: 1.6rem;
-  line-height: 1;
-  color: var(--bs-primary);
-}
-
-/* Gentle pulse to draw the eye to the action once, without nagging. */
-@media (prefers-reduced-motion: no-preference) {
-  .analyse-cta-btn {
-    animation: analyse-cta-pulse 2s ease-out 3;
-  }
-}
-
-@keyframes analyse-cta-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(var(--bs-primary-rgb), 0.5);
-  }
-  70% {
-    box-shadow: 0 0 0 0.6rem rgba(var(--bs-primary-rgb), 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(var(--bs-primary-rgb), 0);
-  }
-}
-
-/* ---------------------------------------------------------------------------
    Forms
 --------------------------------------------------------------------------- */
 .form-control:focus,
@@ -354,21 +353,6 @@ header.sticky-top {
 }
 
 /* ---------------------------------------------------------------------------
-   Table
---------------------------------------------------------------------------- */
-.table {
-  --bs-table-border-color: var(--bs-border-color-translucent);
-}
-
-.table > thead th {
-  font-size: 0.78rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--bs-secondary-color);
-}
-
-/* ---------------------------------------------------------------------------
    Progress
 --------------------------------------------------------------------------- */
 .progress {
@@ -387,11 +371,6 @@ header.sticky-top {
 pre {
   font-size: 0.85rem;
   line-height: 1.6;
-}
-
-.risk-findings {
-  max-height: 360px;
-  overflow-y: auto;
 }
 
 /* Clauses the model flagged as risky, highlighted inside the document text. */
@@ -423,14 +402,16 @@ pre {
 }
 
 pre::-webkit-scrollbar,
-.risk-findings::-webkit-scrollbar,
+.clauses-scroll::-webkit-scrollbar,
+.preference-list::-webkit-scrollbar,
 .list-group::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 pre::-webkit-scrollbar-thumb,
-.risk-findings::-webkit-scrollbar-thumb,
+.clauses-scroll::-webkit-scrollbar-thumb,
+.preference-list::-webkit-scrollbar-thumb,
 .list-group::-webkit-scrollbar-thumb {
   background-color: var(--bs-border-color);
   border-radius: 999px;
