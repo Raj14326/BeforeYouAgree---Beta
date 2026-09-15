@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "dataset": "coastalcph/lex_glue",
+  "subset": "unfair_tos",
+  "revision": "c23fdff1a6bf74e0e1a71cb86f1e781d37da888c",
+  "source_url": "https://huggingface.co/datasets/coastalcph/lex_glue",
+  "license_from_dataset_card": "CC-BY-4.0",
+  "label_source": "original_public_annotations",
+  "mapping": "nonempty labels => risky; empty => not_risky within the eight-category scope",
+  "split_policy": "official split membership; exact duplicates deduplicated test > validation > train; binary conflicts removed",
+  "group_limit": "No document/service IDs supplied in this parquet release; official split retained, independent group audit unavailable",
+  "raw_sha256": {
+    "unfair_tos/train-00000-of-00001.parquet": "09d6d53aa05a1338d399da97f36cae171ca0a85990402318d134a8c668c86182",
+    "unfair_tos/validation-00000-of-00001.parquet": "6429ccec1085241b05083880fb73548361bc8fd05a6764152f9b8e43e4c177e6",
+    "unfair_tos/test-00000-of-00001.parquet": "cf3a30be32f5635bc269b12685290a27b144ad837391e776a2070ff0c3a521c4"
+  },
+  "original_counts": {
+    "train": 5532,
+    "validation": 2275,
+    "test": 1607
+  },
+  "removed": {
+    "train:duplicate": 152,
+    "validation:duplicate": 22,
+    "train:conflicting_label": 2,
+    "test:duplicate": 7
+  },
+  "conflicts": [
+    {
+      "text_hash": "6f5d6911c772ce9829995fbb71cf670c9c7271903e0d27092573b8c7a652b4a1",
+      "ids": [
+        "train:2611",
+        "train:3256"
+      ]
+    }
+  ],
+  "files": {
+    "train.csv": {
+      "sha256": "981c17e4343bd080d3f31366ea7a51da562ce036eb5fa3f59796178eaaa765b0",
+      "rows": 5378,
+      "risky": 617
+    },
+    "validation.csv": {
+      "sha256": "a45313014d9bed398d85e062cd892e741099204e3592e85f5f6e2d865f53f9ec",
+      "rows": 2253,
+      "risky": 230
+    },
+    "test.csv": {
+      "sha256": "96df25defbc8354e474926daf9e02b1e8fcb1ee119107ac4817b4fae8c1b21f6",
+      "rows": 1600,
+      "risky": 168
+    }
+  }
+}
