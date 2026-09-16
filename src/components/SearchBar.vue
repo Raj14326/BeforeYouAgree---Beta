@@ -6,7 +6,7 @@
  * a debounced remote search against `/api/services`. Reports back to the
  * parent only when a service should be loaded, via the `select` emit.
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { apiUrl } from '@/lib/api'
 import type { Service } from '@/types'
 import BrandAvatar from './BrandAvatar.vue'
@@ -26,16 +26,27 @@ const query = ref('')
 const isOpen = ref(false)
 const activeIndex = ref(-1)
 const error = ref('')
-/** Server search results override `services` while the user is typing 2+ chars. */
-const searchResults = ref<Service[] | null>(null)
+/** Remote results are supplemental: locally loaded services always remain immediately searchable. */
+const remoteSearch = ref<{ query: string; services: Service[] } | null>(null)
+const searchCache = new Map<string, Service[]>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
+let searchController: AbortController | undefined
 
 /** Up to 10 services matching the current query (or the first 10 when empty). */
 const suggestions = computed(() => {
-  const pool = searchResults.value ?? services
   const needle = query.value.trim().toLowerCase()
-  if (!needle) return pool.slice(0, 10)
-  return pool.filter((service) => service.name.toLowerCase().includes(needle)).slice(0, 10)
+  if (!needle) return services.slice(0, 10)
+
+  const localMatches = services.filter((service) => service.name.toLowerCase().includes(needle))
+  const matchingRemote = remoteSearch.value?.query === needle ? remoteSearch.value.services : []
+  const seen = new Set<string>()
+  return [...localMatches, ...matchingRemote]
+    .filter((service) => {
+      if (seen.has(service.path)) return false
+      seen.add(service.path)
+      return true
+    })
+    .slice(0, 10)
 })
 
 /** On each keystroke: open the dropdown, clear any selection, and debounce a search by 250 ms (min 2 chars). */
@@ -44,12 +55,22 @@ function handleInput() {
   activeIndex.value = -1
   error.value = ''
   clearTimeout(searchTimer)
+  searchController?.abort()
   const needle = query.value.trim()
   if (needle.length < 2) {
-    searchResults.value = null
+    remoteSearch.value = null
     return
   }
-  searchTimer = setTimeout(() => searchServices(needle), 250)
+
+  const normalizedNeedle = needle.toLowerCase()
+  const cached = searchCache.get(normalizedNeedle)
+  if (cached) {
+    remoteSearch.value = { query: normalizedNeedle, services: cached }
+    return
+  }
+
+  // Local matches are already visible; fetch the wider upstream catalogue shortly after typing settles.
+  searchTimer = setTimeout(() => searchServices(needle), 150)
 }
 
 /**
@@ -58,20 +79,26 @@ function handleInput() {
  * keeping the last good results on screen.
  */
 async function searchServices(needle: string) {
+  const normalizedNeedle = needle.toLowerCase()
+  const controller = new AbortController()
+  searchController = controller
   try {
     const response = await fetch(
       apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`),
+      { signal: controller.signal },
     )
     if (!response.ok) return
     const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
-    if (query.value.trim() === needle) {
-      searchResults.value = payload.data.map((service) => ({
-        name: service.name,
-        path: service.id,
-      }))
+    const results = payload.data.map((service) => ({ name: service.name, path: service.id }))
+    searchCache.set(normalizedNeedle, results)
+    if (query.value.trim().toLowerCase() === normalizedNeedle) {
+      remoteSearch.value = { query: normalizedNeedle, services: results }
     }
-  } catch {
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') return
     // Keep the last successful results while upstream search is unavailable.
+  } finally {
+    if (searchController === controller) searchController = undefined
   }
 }
 
@@ -95,12 +122,21 @@ function handleKeydown(event: KeyboardEvent) {
 
 /** Handle the search form submit: pick an exact name match, else the top suggestion, else show an error. */
 function submitSearch() {
-  const pool = searchResults.value ?? services
+  const matchingRemote =
+    remoteSearch.value?.query === query.value.trim().toLowerCase()
+      ? remoteSearch.value.services
+      : []
+  const pool = [...services, ...matchingRemote]
   const exact = pool.find((service) => service.name.toLowerCase() === query.value.trim().toLowerCase())
   const service = exact ?? suggestions.value[0]
   if (service) selectService(service)
   else error.value = 'No matching service is currently available from ToS;DR.'
 }
+
+onBeforeUnmount(() => {
+  clearTimeout(searchTimer)
+  searchController?.abort()
+})
 
 function selectService(service: Service) {
   query.value = service.name

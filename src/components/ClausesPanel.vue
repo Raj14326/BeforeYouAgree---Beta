@@ -7,10 +7,11 @@ import { computed } from 'vue'
 import type { Analysis, RiskFinding } from '@/types'
 import ClauseCard from './ClauseCard.vue'
 
-const { analysis, filter, enabledCategoryIds } = defineProps<{
+const { analysis, filter, enabledCategoryIds, categoryPriority } = defineProps<{
   analysis: Analysis | null
   filter: RiskFinding['predictedLabel']
   enabledCategoryIds: Set<string>
+  categoryPriority: string[]
 }>()
 
 const emit = defineEmits<{
@@ -20,15 +21,29 @@ const emit = defineEmits<{
 
 // A finding with no matched categories is never hidden by the category
 // toggles; one with categories is shown if at least one of them is enabled.
-const visibleFindings = computed(
-  () =>
-    analysis?.findings.filter(
+const visibleFindings = computed(() => {
+  const priority = new Map(categoryPriority.map((id, index) => [id, index]))
+  return (
+    analysis?.findings
+      .filter(
       (finding) =>
         finding.predictedLabel === filter &&
         (finding.categories.length === 0 ||
           finding.categories.some((category) => enabledCategoryIds.has(category.id))),
-    ) ?? [],
-)
+      )
+      .map((finding, originalIndex) => ({ finding, originalIndex }))
+      .sort((a, b) => {
+        const rank = (finding: RiskFinding) =>
+          Math.min(
+            ...finding.categories
+              .filter((category) => enabledCategoryIds.has(category.id))
+              .map((category) => priority.get(category.id) ?? Number.MAX_SAFE_INTEGER),
+          )
+        return rank(a.finding) - rank(b.finding) || a.originalIndex - b.originalIndex
+      })
+      .map(({ finding }) => finding) ?? []
+  )
+})
 
 function labelCount(label: RiskFinding['predictedLabel']) {
   return analysis?.findings.filter((finding) => finding.predictedLabel === label).length ?? 0
@@ -103,6 +118,8 @@ const severityClass = computed(() => {
             v-for="(finding, index) in visibleFindings"
             :key="`${finding.text}-${index}`"
             :finding="finding"
+            :category-priority="categoryPriority"
+            :enabled-category-ids="enabledCategoryIds"
             @show-in-text="emit('show-in-text', finding)"
           />
         </div>

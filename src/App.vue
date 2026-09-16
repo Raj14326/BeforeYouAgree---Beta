@@ -78,6 +78,8 @@ const analyses = ref<Record<string, Analysis>>({})
 const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
 /** Which risk categories currently pass the sidebar filter; starts with every category enabled. */
 const enabledCategoryIds = ref<Set<string>>(new Set(ALL_CATEGORY_IDS))
+/** Category order chosen in the sidebar; earlier categories sort their matching clauses first. */
+const categoryPriority = ref<string[]>([...ALL_CATEGORY_IDS])
 const analysisErrors = ref<Record<string, string>>({})
 /** The document type whose clauses/original text are shown in chunks 3–4. */
 const activeTerm = ref<string | null>(null)
@@ -394,7 +396,10 @@ async function retrieveSelectedVersion(termType: string) {
     </div>
 
     <div class="layout-grid">
-      <RiskPreferenceSidebar v-model:enabled-category-ids="enabledCategoryIds" />
+      <RiskPreferenceSidebar
+        v-model:enabled-category-ids="enabledCategoryIds"
+        v-model:category-priority="categoryPriority"
+      />
 
       <div class="main-column">
         <SearchBar
@@ -438,6 +443,7 @@ async function retrieveSelectedVersion(termType: string) {
           :analysis="activeAnalysis ?? null"
           :filter="activeFilter"
           :enabled-category-ids="enabledCategoryIds"
+          :category-priority="categoryPriority"
           @update:filter="setActiveFilter"
           @show-in-text="showInText"
         />

@@ -10,18 +10,42 @@
  * the clause list in ClausesPanel.
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
+import draggable from 'vuedraggable'
 import { categoryColor } from '@/lib/category-colors'
 import { PRIVACY_CATEGORIES, PRIVACY_GROUP, TOS_CATEGORIES } from '@/lib/risk-categories'
 
 type PreferenceCategory = { id: string; name: string; description: string; enabled: boolean }
 
 const enabledCategoryIds = defineModel<Set<string>>('enabledCategoryIds', { required: true })
+const categoryPriority = defineModel<string[]>('categoryPriority', { required: true })
 
-const tosCategories = ref<PreferenceCategory[]>(
-  TOS_CATEGORIES.map((category) => ({ ...category, enabled: enabledCategoryIds.value.has(category.id) })),
-)
+type TopLevelPreference =
+  | { kind: 'category'; id: string; category: PreferenceCategory }
+  | { kind: 'privacy'; id: 'privacy' }
+
+const initialRank = new Map(categoryPriority.value.map((id, index) => [id, index]))
+const topLevelPreferences = ref<TopLevelPreference[]>([
+  ...TOS_CATEGORIES.map(
+    (category): TopLevelPreference => ({
+      kind: 'category',
+      id: category.id,
+      category: { ...category, enabled: enabledCategoryIds.value.has(category.id) },
+    }),
+  ),
+  { kind: 'privacy', id: 'privacy' } as TopLevelPreference,
+].sort((a, b) => {
+  const rank = (item: TopLevelPreference) =>
+    item.kind === 'privacy'
+      ? Math.min(...PRIVACY_CATEGORIES.map((category) => initialRank.get(category.id) ?? Number.MAX_SAFE_INTEGER))
+      : initialRank.get(item.id) ?? Number.MAX_SAFE_INTEGER
+  return rank(a) - rank(b)
+}))
 const privacyCategories = ref<PreferenceCategory[]>(
-  PRIVACY_CATEGORIES.map((category) => ({ ...category, enabled: enabledCategoryIds.value.has(category.id) })),
+  PRIVACY_CATEGORIES.map((category) => ({ ...category, enabled: enabledCategoryIds.value.has(category.id) })).sort(
+    (a, b) =>
+      (initialRank.get(a.id) ?? Number.MAX_SAFE_INTEGER) -
+      (initialRank.get(b.id) ?? Number.MAX_SAFE_INTEGER),
+  ),
 )
 const advancedOpen = ref(false)
 
@@ -42,12 +66,18 @@ function togglePrivacyGroup() {
 
 // Recompute the emitted set whenever any individual card flips.
 watch(
-  [tosCategories, privacyCategories],
+  [topLevelPreferences, privacyCategories],
   () => {
     const next = new Set<string>()
-    for (const category of tosCategories.value) if (category.enabled) next.add(category.id)
+    for (const item of topLevelPreferences.value) {
+      if (item.kind === 'category' && item.category.enabled) next.add(item.category.id)
+    }
     for (const category of privacyCategories.value) if (category.enabled) next.add(category.id)
     enabledCategoryIds.value = next
+
+    categoryPriority.value = topLevelPreferences.value.flatMap((item) =>
+      item.kind === 'privacy' ? privacyCategories.value.map((category) => category.id) : [item.category.id],
+    )
   },
   { deep: true },
 )
@@ -81,77 +111,106 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
 
       <div class="card-body pt-0">
         <p class="small text-body-secondary">
-          Toggle a category off to hide clauses that are only flagged for that reason.
+          Drag preferences to set their priority. Clauses matching the first preference appear first.
         </p>
 
         <div class="preference-list">
-          <div v-for="category in tosCategories" :key="category.id" class="preference-card">
-            <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
-            <div class="preference-text flex-grow-1">
-              <div class="preference-name">{{ category.name }}</div>
-              <div class="preference-description">{{ category.description }}</div>
-            </div>
-            <div class="form-check form-switch mb-0">
-              <input
-                :id="`pref-${category.id}`"
-                v-model="category.enabled"
-                class="form-check-input"
-                type="checkbox"
-                role="switch"
-                :aria-label="`Include ${category.name} in risk preferences`"
-              />
-            </div>
-          </div>
-
-          <div class="preference-card preference-group-card">
-            <span class="preference-dot" :style="{ backgroundColor: categoryColor(PRIVACY_GROUP.id) }"></span>
-            <div class="preference-text flex-grow-1">
-              <div class="preference-name">{{ PRIVACY_GROUP.name }}</div>
-              <div class="preference-description">{{ PRIVACY_GROUP.description }}</div>
-            </div>
-            <div class="form-check form-switch mb-0">
-              <input
-                id="pref-privacy-group"
-                ref="privacyMasterInput"
-                class="form-check-input"
-                type="checkbox"
-                role="switch"
-                :checked="privacyAllEnabled"
-                :aria-label="`Include ${PRIVACY_GROUP.name} in risk preferences`"
-                @change="togglePrivacyGroup"
-              />
-            </div>
-          </div>
-
-          <button
-            type="button"
-            class="btn btn-sm btn-link p-0 mb-2 preference-advanced-toggle"
-            :aria-expanded="advancedOpen"
-            @click="advancedOpen = !advancedOpen"
+          <draggable
+            v-model="topLevelPreferences"
+            item-key="id"
+            handle=".preference-drag-handle"
+            ghost-class="preference-card-ghost"
+            chosen-class="preference-card-chosen"
           >
-            <i class="bi" :class="advancedOpen ? 'bi-chevron-down' : 'bi-chevron-right'" aria-hidden="true"></i>
-            Advanced: individual privacy categories
-          </button>
+            <template #item="{ element: item }">
+              <div>
+                <div class="preference-card">
+                  <button class="preference-drag-handle" type="button" aria-label="Drag to change priority">
+                    <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+                  </button>
+                  <template v-if="item.kind === 'category'">
+                    <span class="preference-dot" :style="{ backgroundColor: categoryColor(item.category.id) }"></span>
+                    <div class="preference-text flex-grow-1">
+                      <div class="preference-name">{{ item.category.name }}</div>
+                      <div class="preference-description">{{ item.category.description }}</div>
+                    </div>
+                    <div class="form-check form-switch mb-0">
+                      <input
+                        :id="`pref-${item.category.id}`"
+                        v-model="item.category.enabled"
+                        class="form-check-input"
+                        type="checkbox"
+                        role="switch"
+                        :aria-label="`Include ${item.category.name} in risk preferences`"
+                      />
+                    </div>
+                  </template>
+                  <template v-else>
+                    <span class="preference-dot" :style="{ backgroundColor: categoryColor(PRIVACY_GROUP.id) }"></span>
+                    <div class="preference-text flex-grow-1">
+                      <div class="preference-name">{{ PRIVACY_GROUP.name }}</div>
+                      <div class="preference-description">{{ PRIVACY_GROUP.description }}</div>
+                    </div>
+                    <div class="form-check form-switch mb-0">
+                      <input
+                        id="pref-privacy-group"
+                        ref="privacyMasterInput"
+                        class="form-check-input"
+                        type="checkbox"
+                        role="switch"
+                        :checked="privacyAllEnabled"
+                        :aria-label="`Include ${PRIVACY_GROUP.name} in risk preferences`"
+                        @change="togglePrivacyGroup"
+                      />
+                    </div>
+                  </template>
+                </div>
 
-          <div v-if="advancedOpen" class="preference-sublist">
-            <div v-for="category in privacyCategories" :key="category.id" class="preference-card preference-subcard">
-              <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
-              <div class="preference-text flex-grow-1">
-                <div class="preference-name">{{ category.name }}</div>
-                <div class="preference-description">{{ category.description }}</div>
+                <template v-if="item.kind === 'privacy'">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-link p-0 mb-2 preference-advanced-toggle"
+                    :aria-expanded="advancedOpen"
+                    @click="advancedOpen = !advancedOpen"
+                  >
+                    <i class="bi" :class="advancedOpen ? 'bi-chevron-down' : 'bi-chevron-right'" aria-hidden="true"></i>
+                    Advanced: individual privacy categories
+                  </button>
+                  <draggable
+                    v-if="advancedOpen"
+                    v-model="privacyCategories"
+                    class="preference-sublist"
+                    item-key="id"
+                    handle=".preference-drag-handle"
+                    ghost-class="preference-card-ghost"
+                  >
+                    <template #item="{ element: category }">
+                      <div class="preference-card preference-subcard">
+                        <button class="preference-drag-handle" type="button" aria-label="Drag to change privacy priority">
+                          <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+                        </button>
+                        <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
+                        <div class="preference-text flex-grow-1">
+                          <div class="preference-name">{{ category.name }}</div>
+                          <div class="preference-description">{{ category.description }}</div>
+                        </div>
+                        <div class="form-check form-switch mb-0">
+                          <input
+                            :id="`pref-${category.id}`"
+                            v-model="category.enabled"
+                            class="form-check-input"
+                            type="checkbox"
+                            role="switch"
+                            :aria-label="`Include ${category.name} in risk preferences`"
+                          />
+                        </div>
+                      </div>
+                    </template>
+                  </draggable>
+                </template>
               </div>
-              <div class="form-check form-switch mb-0">
-                <input
-                  :id="`pref-${category.id}`"
-                  v-model="category.enabled"
-                  class="form-check-input"
-                  type="checkbox"
-                  role="switch"
-                  :aria-label="`Include ${category.name} in risk preferences`"
-                />
-              </div>
-            </div>
-          </div>
+            </template>
+          </draggable>
         </div>
       </div>
     </details>
@@ -191,6 +250,29 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   border-radius: var(--bs-border-radius-sm);
   background-color: var(--bs-tertiary-bg);
   margin-bottom: 0.45rem;
+}
+
+.preference-drag-handle {
+  flex: none;
+  margin: -0.25rem 0 -0.25rem -0.35rem;
+  padding: 0.25rem 0.1rem;
+  border: 0;
+  color: var(--bs-secondary-color);
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+}
+
+.preference-drag-handle:active {
+  cursor: grabbing;
+}
+
+.preference-card-ghost {
+  opacity: 0.35;
+}
+
+.preference-card-chosen .preference-card {
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.12);
 }
 
 .preference-subcard {

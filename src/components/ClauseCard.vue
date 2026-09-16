@@ -6,10 +6,32 @@
  * right. A coloured strip on the left edge shows the risk level.
  */
 import { categoryColor } from '@/lib/category-colors'
+import { personalisedRiskLevel, personalisedRiskScore } from '@/lib/personalised-risk-score'
 import { riskLevelBadgeClass, riskLevelColor } from '@/lib/risk-level'
-import { RISK_LEVEL_LABELS, type RiskFinding } from '@/types'
+import type { RiskFinding } from '@/types'
+import { computed } from 'vue'
 
-const { finding } = defineProps<{ finding: RiskFinding }>()
+const { finding, categoryPriority, enabledCategoryIds } = defineProps<{
+  finding: RiskFinding
+  categoryPriority: string[]
+  enabledCategoryIds: Set<string>
+}>()
+
+const personalisedScore = computed(() =>
+  personalisedRiskScore(finding.categories, categoryPriority, enabledCategoryIds),
+)
+const displayedRiskLevel = computed(() => personalisedRiskLevel(personalisedScore.value.score))
+const displayedRiskLabel = computed(
+  () =>
+    `${displayedRiskLevel.value[0]!.toUpperCase()}${displayedRiskLevel.value.slice(1)} personalised risk`,
+)
+
+const scoreLabel = computed(() => {
+  const category = personalisedScore.value.primaryCategoryName
+  return category
+    ? `Personalised risk score ${personalisedScore.value.score} out of 100. Highest priority match: ${category}.`
+    : 'Personalised risk score 0 out of 100. No enabled risk categories matched.'
+})
 
 const emit = defineEmits<{
   'show-in-text': []
@@ -17,15 +39,15 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <article class="clause-card" :style="{ '--clause-strip-color': riskLevelColor(finding.riskLevel) }">
+  <article class="clause-card" :style="{ '--clause-strip-color': riskLevelColor(displayedRiskLevel) }">
     <div class="clause-card-main">
       <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
         <span
           class="badge"
-          :class="riskLevelBadgeClass(finding.riskLevel)"
-          :title="finding.riskLevelMessage"
+          :class="riskLevelBadgeClass(displayedRiskLevel)"
+          :title="scoreLabel"
         >
-          {{ RISK_LEVEL_LABELS[finding.riskLevel] }}
+          {{ displayedRiskLabel }}
         </span>
         <span v-if="finding.occurrenceCount > 1" class="badge text-bg-secondary">
           Appears {{ finding.occurrenceCount }} times
@@ -54,9 +76,9 @@ const emit = defineEmits<{
       </div>
     </div>
 
-    <div class="clause-card-score" aria-label="Risk score (not yet available)">
-      <div class="clause-card-score-value">—</div>
-      <div class="clause-card-score-label">Score&nbsp;TBD</div>
+    <div class="clause-card-score" :aria-label="scoreLabel" :title="scoreLabel">
+      <div class="clause-card-score-value">{{ personalisedScore.score }}</div>
+      <div class="clause-card-score-label">Personalised risk</div>
     </div>
   </article>
 </template>
