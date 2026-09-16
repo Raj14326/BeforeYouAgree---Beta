@@ -7,9 +7,10 @@ import { computed } from 'vue'
 import type { Analysis, RiskFinding } from '@/types'
 import ClauseCard from './ClauseCard.vue'
 
-const { analysis, filter } = defineProps<{
+const { analysis, filter, enabledCategoryIds } = defineProps<{
   analysis: Analysis | null
   filter: RiskFinding['predictedLabel']
+  enabledCategoryIds: Set<string>
 }>()
 
 const emit = defineEmits<{
@@ -17,8 +18,16 @@ const emit = defineEmits<{
   'show-in-text': [finding: RiskFinding]
 }>()
 
+// A finding with no matched categories is never hidden by the category
+// toggles; one with categories is shown if at least one of them is enabled.
 const visibleFindings = computed(
-  () => analysis?.findings.filter((finding) => finding.predictedLabel === filter) ?? [],
+  () =>
+    analysis?.findings.filter(
+      (finding) =>
+        finding.predictedLabel === filter &&
+        (finding.categories.length === 0 ||
+          finding.categories.some((category) => enabledCategoryIds.has(category.id))),
+    ) ?? [],
 )
 
 function labelCount(label: RiskFinding['predictedLabel']) {
