@@ -28,6 +28,7 @@ import OriginalDocumentPanel from './components/OriginalDocumentPanel.vue'
 import RiskPreferenceSidebar from './components/RiskPreferenceSidebar.vue'
 import { apiUrl } from '@/lib/api'
 import { buildDocumentViewHtml, clauseId } from '@/lib/document-view'
+import { ALL_CATEGORY_IDS } from '@/lib/risk-categories'
 import type { Analysis, Declaration, Retrieval, RiskFinding, Service, Term, VersionOption } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,8 @@ const retrievals = ref<Record<string, Retrieval>>({})
 const retrievalErrors = ref<Record<string, string>>({})
 const analyses = ref<Record<string, Analysis>>({})
 const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
+/** Which risk categories currently pass the sidebar filter; starts with every category enabled. */
+const enabledCategoryIds = ref<Set<string>>(new Set(ALL_CATEGORY_IDS))
 const analysisErrors = ref<Record<string, string>>({})
 /** The document type whose clauses/original text are shown in chunks 3–4. */
 const activeTerm = ref<string | null>(null)
@@ -391,7 +394,7 @@ async function retrieveSelectedVersion(termType: string) {
     </div>
 
     <div class="layout-grid">
-      <RiskPreferenceSidebar />
+      <RiskPreferenceSidebar v-model:enabled-category-ids="enabledCategoryIds" />
 
       <div class="main-column">
         <SearchBar
@@ -434,6 +437,7 @@ async function retrieveSelectedVersion(termType: string) {
           v-if="activeTerm"
           :analysis="activeAnalysis ?? null"
           :filter="activeFilter"
+          :enabled-category-ids="enabledCategoryIds"
           @update:filter="setActiveFilter"
           @show-in-text="showInText"
         />

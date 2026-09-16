@@ -2,43 +2,54 @@
 /**
  * RiskPreferenceSidebar.vue: chunk 5, to the left of every other section.
  *
- * Placeholder for an upcoming preference/sorting feature: draggable,
- * toggleable cards per risk category. Reordering and the on/off state are
- * local component state only — nothing here yet feeds clause sorting.
- *
- * Category ids/names mirror the model's own categories, so they line up
- * with what's shown on each clause card:
- *  - the 8 ToS labels in ml/bert-multilabel-base-v1/config.json
- *  - the 11 privacy labels in server/privacy-rules.ts
+ * Toggle cards for the risk categories a clause can be tagged with: the 8
+ * ToS labels the model predicts, plus the 11 rule-based privacy labels
+ * (server/privacy-rules.ts) collapsed into a single "Privacy" card with an
+ * "Advanced" expander for the individual sub-categories. Toggling a card
+ * feeds `enabledCategoryIds` back up to App.vue, which uses it to filter
+ * the clause list in ClausesPanel.
  */
-import { onBeforeUnmount, onMounted, ref } from 'vue'
-import draggable from 'vuedraggable'
+import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import { categoryColor } from '@/lib/category-colors'
+import { PRIVACY_CATEGORIES, PRIVACY_GROUP, TOS_CATEGORIES } from '@/lib/risk-categories'
 
-type PreferenceCategory = { id: string; name: string; enabled: boolean }
+type PreferenceCategory = { id: string; name: string; description: string; enabled: boolean }
 
-const categories = ref<PreferenceCategory[]>(
-  [
-    ['limitation_of_liability', 'Limitation of liability'],
-    ['unilateral_termination', 'Unilateral termination'],
-    ['unilateral_change', 'Unilateral change'],
-    ['content_removal', 'Content removal'],
-    ['contract_by_using', 'Contract by using'],
-    ['choice_of_law', 'Choice of law'],
-    ['jurisdiction', 'Jurisdiction'],
-    ['arbitration', 'Arbitration'],
-    ['privacy_broad_collection', 'Broad data collection'],
-    ['privacy_location_tracking', 'Location tracking'],
-    ['privacy_cross_service_profiling', 'Cross-service profiling'],
-    ['privacy_personalized_ads', 'Personalized advertising'],
-    ['privacy_content_analysis', 'Content or audio analysis'],
-    ['privacy_third_party_sharing', 'Third-party data sharing'],
-    ['privacy_government_disclosure', 'Government or legal disclosure'],
-    ['privacy_admin_control', 'Administrator access and control'],
-    ['privacy_extended_retention', 'Extended data retention'],
-    ['privacy_international_transfer', 'International data transfer'],
-    ['privacy_business_transfer', 'Business-transfer disclosure'],
-  ].map(([id, name]) => ({ id: id!, name: name!, enabled: true })),
+const enabledCategoryIds = defineModel<Set<string>>('enabledCategoryIds', { required: true })
+
+const tosCategories = ref<PreferenceCategory[]>(
+  TOS_CATEGORIES.map((category) => ({ ...category, enabled: enabledCategoryIds.value.has(category.id) })),
+)
+const privacyCategories = ref<PreferenceCategory[]>(
+  PRIVACY_CATEGORIES.map((category) => ({ ...category, enabled: enabledCategoryIds.value.has(category.id) })),
+)
+const advancedOpen = ref(false)
+
+const privacyAllEnabled = computed(() => privacyCategories.value.every((category) => category.enabled))
+const privacySomeEnabled = computed(() => privacyCategories.value.some((category) => category.enabled))
+const privacyMasterInput = ref<HTMLInputElement | null>(null)
+
+watchEffect(() => {
+  if (privacyMasterInput.value) {
+    privacyMasterInput.value.indeterminate = privacySomeEnabled.value && !privacyAllEnabled.value
+  }
+})
+
+function togglePrivacyGroup() {
+  const nextValue = !privacyAllEnabled.value
+  privacyCategories.value.forEach((category) => (category.enabled = nextValue))
+}
+
+// Recompute the emitted set whenever any individual card flips.
+watch(
+  [tosCategories, privacyCategories],
+  () => {
+    const next = new Set<string>()
+    for (const category of tosCategories.value) if (category.enabled) next.add(category.id)
+    for (const category of privacyCategories.value) if (category.enabled) next.add(category.id)
+    enabledCategoryIds.value = next
+  },
+  { deep: true },
 )
 
 // Open by default on desktop, collapsed on narrow viewports (mirrors the
@@ -70,34 +81,78 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
 
       <div class="card-body pt-0">
         <p class="small text-body-secondary">
-          Drag to reorder priority and toggle categories on or off. Not wired to sorting yet.
+          Toggle a category off to hide clauses that are only flagged for that reason.
         </p>
 
-        <draggable
-          v-model="categories"
-          item-key="id"
-          tag="div"
-          class="preference-list"
-          handle=".preference-drag-handle"
-        >
-          <template #item="{ element }: { element: PreferenceCategory }">
-            <div class="preference-card">
-              <i class="bi bi-grip-vertical preference-drag-handle" aria-hidden="true"></i>
-              <span class="preference-dot" :style="{ backgroundColor: categoryColor(element.id) }"></span>
-              <span class="preference-name flex-grow-1">{{ element.name }}</span>
+        <div class="preference-list">
+          <div v-for="category in tosCategories" :key="category.id" class="preference-card">
+            <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
+            <div class="preference-text flex-grow-1">
+              <div class="preference-name">{{ category.name }}</div>
+              <div class="preference-description">{{ category.description }}</div>
+            </div>
+            <div class="form-check form-switch mb-0">
+              <input
+                :id="`pref-${category.id}`"
+                v-model="category.enabled"
+                class="form-check-input"
+                type="checkbox"
+                role="switch"
+                :aria-label="`Include ${category.name} in risk preferences`"
+              />
+            </div>
+          </div>
+
+          <div class="preference-card preference-group-card">
+            <span class="preference-dot" :style="{ backgroundColor: categoryColor(PRIVACY_GROUP.id) }"></span>
+            <div class="preference-text flex-grow-1">
+              <div class="preference-name">{{ PRIVACY_GROUP.name }}</div>
+              <div class="preference-description">{{ PRIVACY_GROUP.description }}</div>
+            </div>
+            <div class="form-check form-switch mb-0">
+              <input
+                id="pref-privacy-group"
+                ref="privacyMasterInput"
+                class="form-check-input"
+                type="checkbox"
+                role="switch"
+                :checked="privacyAllEnabled"
+                :aria-label="`Include ${PRIVACY_GROUP.name} in risk preferences`"
+                @change="togglePrivacyGroup"
+              />
+            </div>
+          </div>
+
+          <button
+            type="button"
+            class="btn btn-sm btn-link p-0 mb-2 preference-advanced-toggle"
+            :aria-expanded="advancedOpen"
+            @click="advancedOpen = !advancedOpen"
+          >
+            <i class="bi" :class="advancedOpen ? 'bi-chevron-down' : 'bi-chevron-right'" aria-hidden="true"></i>
+            Advanced: individual privacy categories
+          </button>
+
+          <div v-if="advancedOpen" class="preference-sublist">
+            <div v-for="category in privacyCategories" :key="category.id" class="preference-card preference-subcard">
+              <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
+              <div class="preference-text flex-grow-1">
+                <div class="preference-name">{{ category.name }}</div>
+                <div class="preference-description">{{ category.description }}</div>
+              </div>
               <div class="form-check form-switch mb-0">
                 <input
-                  :id="`pref-${element.id}`"
-                  v-model="element.enabled"
+                  :id="`pref-${category.id}`"
+                  v-model="category.enabled"
                   class="form-check-input"
                   type="checkbox"
                   role="switch"
-                  :aria-label="`Include ${element.name} in risk preferences`"
+                  :aria-label="`Include ${category.name} in risk preferences`"
                 />
               </div>
             </div>
-          </template>
-        </draggable>
+          </div>
+        </div>
       </div>
     </details>
   </aside>
@@ -138,10 +193,9 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   margin-bottom: 0.45rem;
 }
 
-.preference-drag-handle {
-  flex: none;
-  cursor: grab;
-  color: var(--bs-secondary-color);
+.preference-subcard {
+  margin-left: 1rem;
+  background-color: var(--bs-body-bg);
 }
 
 .preference-dot {
@@ -149,13 +203,30 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
+  margin-top: 0.3rem;
+  align-self: flex-start;
+}
+
+.preference-text {
+  min-width: 0;
 }
 
 .preference-name {
   font-size: 0.85rem;
 }
 
-.sortable-ghost {
-  opacity: 0.4;
+.preference-description {
+  font-size: 0.75rem;
+  color: var(--bs-secondary-color);
+  line-height: 1.3;
+}
+
+.preference-advanced-toggle {
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.preference-sublist {
+  margin-bottom: 0.45rem;
 }
 </style>
