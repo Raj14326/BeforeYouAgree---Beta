@@ -167,24 +167,25 @@ function selectService(service: Service) {
             @keydown="handleKeydown"
           />
         </div>
-        <ul
+        <div
           v-if="isOpen && suggestions.length"
-          class="list-group position-absolute w-100 mt-1 shadow"
-          style="z-index: 1000; max-height: 260px; overflow-y: auto"
+          class="autocomplete-popup mt-1 shadow"
         >
-          <li
-            v-for="(service, index) in suggestions"
-            :key="service.path"
-            class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-            :class="{ active: index === activeIndex }"
-            style="cursor: pointer"
-            @mousedown.prevent="selectService(service)"
-          >
-            <BrandAvatar :service-name="service.name" />
-            <span class="flex-grow-1">{{ service.name }}</span>
-            <i class="bi bi-chevron-right small text-body-secondary"></i>
-          </li>
-        </ul>
+          <ul class="list-group autocomplete-options">
+            <li
+              v-for="(service, index) in suggestions"
+              :key="service.path"
+              class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+              :class="{ active: index === activeIndex }"
+              style="cursor: pointer"
+              @mousedown.prevent="selectService(service)"
+            >
+              <BrandAvatar :service-name="service.name" />
+              <span class="flex-grow-1">{{ service.name }}</span>
+              <i class="bi bi-chevron-right small text-body-secondary"></i>
+            </li>
+          </ul>
+        </div>
       </div>
       <div class="col-auto">
         <button
@@ -210,3 +211,35 @@ function selectService(service: Service) {
     <div v-if="error" class="alert alert-warning mt-2 mb-0 py-2" role="alert">{{ error }}</div>
   </form>
 </template>
+
+<style scoped>
+.autocomplete-popup {
+  position: absolute;
+  z-index: 1000;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--bs-border-color);
+  border-radius: 0.8rem;
+  background-color: var(--bs-body-bg);
+}
+
+.autocomplete-options {
+  max-height: 260px;
+  margin: 0;
+  overflow-y: auto;
+  border-radius: 0;
+}
+
+.autocomplete-options > .list-group-item {
+  border-right: 0;
+  border-left: 0;
+}
+
+.autocomplete-options > .list-group-item:first-child {
+  border-top: 0;
+}
+
+.autocomplete-options > .list-group-item:last-child {
+  border-bottom: 0;
+}
+</style>

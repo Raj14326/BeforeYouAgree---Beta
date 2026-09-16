@@ -4,14 +4,16 @@
  * active document (chunk 3).
  */
 import { computed } from 'vue'
+import { personalisedRiskScore } from '@/lib/personalised-risk-score'
 import type { Analysis, RiskFinding } from '@/types'
 import ClauseCard from './ClauseCard.vue'
 
-const { analysis, filter, enabledCategoryIds, categoryPriority } = defineProps<{
+const { analysis, filter, enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = defineProps<{
   analysis: Analysis | null
   filter: RiskFinding['predictedLabel']
   enabledCategoryIds: Set<string>
   categoryPriority: string[]
+  riskPreferencesEnabled: boolean
 }>()
 
 const emit = defineEmits<{
@@ -28,11 +30,21 @@ const visibleFindings = computed(() => {
       .filter(
       (finding) =>
         finding.predictedLabel === filter &&
-        (finding.categories.length === 0 ||
+        (!riskPreferencesEnabled || finding.categories.length === 0 ||
           finding.categories.some((category) => enabledCategoryIds.has(category.id))),
       )
       .map((finding, originalIndex) => ({ finding, originalIndex }))
       .sort((a, b) => {
+        if (!riskPreferencesEnabled) {
+          const score = (finding: RiskFinding) =>
+            personalisedRiskScore(
+              finding.categories,
+              categoryPriority,
+              enabledCategoryIds,
+              false,
+            ).score
+          return score(b.finding) - score(a.finding) || a.originalIndex - b.originalIndex
+        }
         const rank = (finding: RiskFinding) =>
           Math.min(
             ...finding.categories
@@ -120,6 +132,7 @@ const severityClass = computed(() => {
             :finding="finding"
             :category-priority="categoryPriority"
             :enabled-category-ids="enabledCategoryIds"
+            :risk-preferences-enabled="riskPreferencesEnabled"
             @show-in-text="emit('show-in-text', finding)"
           />
         </div>

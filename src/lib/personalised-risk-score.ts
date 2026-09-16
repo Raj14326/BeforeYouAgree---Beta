@@ -31,8 +31,11 @@ export function personalisedRiskScore(
   categories: CategoryFinding[],
   categoryPriority: string[],
   enabledCategoryIds: Set<string>,
+  preferencesEnabled = true,
 ): PersonalisedRiskScore {
-  const enabledMatches = categories.filter((category) => enabledCategoryIds.has(category.id))
+  const enabledMatches = preferencesEnabled
+    ? categories.filter((category) => enabledCategoryIds.has(category.id))
+    : categories
   if (!enabledMatches.length) {
     return {
       score: 0,
@@ -57,7 +60,9 @@ export function personalisedRiskScore(
   const strongestDetection = Math.max(...enabledMatches.map((category) => clamp(category.score, 0, 1)))
   const detectionScore = Math.round(strongestDetection * 70)
   const preferenceScore =
-    primaryRank === undefined ? 0 : Math.round(20 * (1 - primaryRank / lastRank))
+    !preferencesEnabled || primaryRank === undefined
+      ? 0
+      : Math.round(20 * (1 - primaryRank / lastRank))
   const categoryBonus = Math.min(Math.max(enabledMatches.length - 1, 0) * 5, 10)
 
   return {

@@ -18,6 +18,7 @@ type PreferenceCategory = { id: string; name: string; description: string; enabl
 
 const enabledCategoryIds = defineModel<Set<string>>('enabledCategoryIds', { required: true })
 const categoryPriority = defineModel<string[]>('categoryPriority', { required: true })
+const riskPreferencesEnabled = defineModel<boolean>('riskPreferencesEnabled', { required: true })
 
 type TopLevelPreference =
   | { kind: 'category'; id: string; category: PreferenceCategory }
@@ -49,20 +50,15 @@ const privacyCategories = ref<PreferenceCategory[]>(
 )
 const advancedOpen = ref(false)
 
-// Click-to-open "what does this mean" bubble, anchored to whichever info
-// button was clicked. `key` is the category id (or 'privacy-group' for the
-// Privacy card itself) so only one bubble is open, and re-clicking the same
-// trigger closes it.
+// "What does this mean" bubble, opened after a half-second pointer hover or
+// immediately by click/keyboard activation. `key` identifies its trigger.
 type ActiveInfo = { key: string; name: string; description: string; top: number; left: number; placement: 'left' | 'right' }
 const activeInfo = ref<ActiveInfo | null>(null)
 const preferenceListEl = ref<HTMLElement | null>(null)
+let infoHoverTimer: ReturnType<typeof setTimeout> | undefined
 
-function toggleInfo(event: MouseEvent, key: string, name: string, description: string) {
-  if (activeInfo.value?.key === key) {
-    activeInfo.value = null
-    return
-  }
-  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+function showInfo(target: HTMLElement, key: string, name: string, description: string) {
+  const rect = target.getBoundingClientRect()
   const bubbleWidth = 260
   const fitsRight = rect.right + 12 + bubbleWidth <= window.innerWidth
   activeInfo.value = {
@@ -75,7 +71,28 @@ function toggleInfo(event: MouseEvent, key: string, name: string, description: s
   }
 }
 
+function toggleInfo(event: MouseEvent, key: string, name: string, description: string) {
+  cancelInfoHover()
+  if (activeInfo.value?.key === key) {
+    activeInfo.value = null
+    return
+  }
+  showInfo(event.currentTarget as HTMLElement, key, name, description)
+}
+
+function scheduleInfo(event: MouseEvent, key: string, name: string, description: string) {
+  cancelInfoHover()
+  const target = event.currentTarget as HTMLElement
+  infoHoverTimer = window.setTimeout(() => showInfo(target, key, name, description), 500)
+}
+
+function cancelInfoHover() {
+  if (infoHoverTimer !== undefined) clearTimeout(infoHoverTimer)
+  infoHoverTimer = undefined
+}
+
 function closeInfo() {
+  cancelInfoHover()
   activeInfo.value = null
 }
 
@@ -130,6 +147,7 @@ onMounted(() => {
   preferenceListEl.value?.addEventListener('scroll', closeInfo, { passive: true })
 })
 onBeforeUnmount(() => {
+  cancelInfoHover()
   desktopQuery.removeEventListener('change', syncOpenToViewport)
   window.removeEventListener('click', closeInfo)
   window.removeEventListener('resize', closeInfo)
@@ -150,13 +168,32 @@ onBeforeUnmount(() => {
       </summary>
 
       <div class="card-body pt-0">
+        <div class="preference-master d-flex align-items-center justify-content-between gap-3 mb-2">
+          <label class="small fw-medium" for="risk-preferences-enabled">Use risk preferences</label>
+          <div class="form-check form-switch mb-0">
+            <input
+              id="risk-preferences-enabled"
+              v-model="riskPreferencesEnabled"
+              class="form-check-input"
+              type="checkbox"
+              role="switch"
+              aria-label="Enable risk preferences"
+            />
+          </div>
+        </div>
         <p class="small text-body-secondary">
           Drag preferences to set their priority. Clauses matching the first preference appear first.
         </p>
 
+        <fieldset
+          class="preference-fieldset"
+          :class="{ 'preference-fieldset--disabled': !riskPreferencesEnabled }"
+          :disabled="!riskPreferencesEnabled"
+        >
         <div ref="preferenceListEl" class="preference-list">
           <draggable
             v-model="topLevelPreferences"
+            :disabled="!riskPreferencesEnabled"
             item-key="id"
             handle=".preference-drag-handle"
             ghost-class="preference-card-ghost"
@@ -180,8 +217,9 @@ onBeforeUnmount(() => {
                       type="button"
                       class="preference-info-btn"
                       :class="{ 'preference-info-btn--active': activeInfo?.key === item.category.id }"
-                      aria-haspopup="dialog"
                       :aria-label="`About ${item.category.name}`"
+                      @mouseenter="scheduleInfo($event, item.category.id, item.category.name, item.category.description)"
+                      @mouseleave="closeInfo"
                       @click.stop="toggleInfo($event, item.category.id, item.category.name, item.category.description)"
                     >
                       <i class="bi bi-info-circle" aria-hidden="true"></i>
@@ -206,8 +244,9 @@ onBeforeUnmount(() => {
                       type="button"
                       class="preference-info-btn"
                       :class="{ 'preference-info-btn--active': activeInfo?.key === 'privacy-group' }"
-                      aria-haspopup="dialog"
                       :aria-label="`About ${PRIVACY_GROUP.name}`"
+                      @mouseenter="scheduleInfo($event, 'privacy-group', PRIVACY_GROUP.name, PRIVACY_GROUP.description)"
+                      @mouseleave="closeInfo"
                       @click.stop="toggleInfo($event, 'privacy-group', PRIVACY_GROUP.name, PRIVACY_GROUP.description)"
                     >
                       <i class="bi bi-info-circle" aria-hidden="true"></i>
@@ -258,8 +297,9 @@ onBeforeUnmount(() => {
                             type="button"
                             class="preference-info-btn"
                             :class="{ 'preference-info-btn--active': activeInfo?.key === category.id }"
-                            aria-haspopup="dialog"
                             :aria-label="`About ${category.name}`"
+                            @mouseenter="scheduleInfo($event, category.id, category.name, category.description)"
+                            @mouseleave="closeInfo"
                             @click.stop="toggleInfo($event, category.id, category.name, category.description)"
                           >
                             <i class="bi bi-info-circle" aria-hidden="true"></i>
@@ -283,30 +323,29 @@ onBeforeUnmount(() => {
             </template>
           </draggable>
         </div>
+        </fieldset>
       </div>
     </details>
   </aside>
 
   <Teleport to="body">
-    <div
-      v-if="activeInfo"
-      class="preference-popover"
-      :class="`preference-popover--${activeInfo.placement}`"
-      :style="{ top: `${activeInfo.top}px`, left: `${activeInfo.left}px` }"
-      role="dialog"
-      :aria-label="activeInfo.name"
-      @click.stop
-    >
-      <div class="preference-popover-bubble">
-        <div class="preference-popover-header">
-          <span class="preference-popover-title">{{ activeInfo.name }}</span>
-          <button type="button" class="preference-popover-close" aria-label="Close" @click="closeInfo">
-            <i class="bi bi-x-lg" aria-hidden="true"></i>
-          </button>
+    <Transition name="preference-tooltip">
+      <div
+        v-if="activeInfo"
+        class="preference-popover"
+        :class="`preference-popover--${activeInfo.placement}`"
+        :style="{ top: `${activeInfo.top}px`, left: `${activeInfo.left}px` }"
+        role="tooltip"
+        :aria-label="activeInfo.name"
+      >
+        <div class="preference-popover-bubble">
+          <div class="preference-popover-header">
+            <span class="preference-popover-title">{{ activeInfo.name }}</span>
+          </div>
+          <p class="preference-popover-body">{{ activeInfo.description }}</p>
         </div>
-        <p class="preference-popover-body">{{ activeInfo.description }}</p>
       </div>
-    </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -471,6 +510,47 @@ onBeforeUnmount(() => {
   padding: 0.65rem 0.8rem;
 }
 
+.preference-fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  transition: opacity 0.15s ease;
+}
+
+.preference-fieldset--disabled {
+  opacity: 0.5;
+}
+
+.preference-tooltip-enter-active,
+.preference-tooltip-leave-active {
+  transition: opacity 0.18s ease;
+}
+
+.preference-tooltip-enter-active .preference-popover-bubble,
+.preference-tooltip-leave-active .preference-popover-bubble {
+  transition: transform 0.18s ease;
+}
+
+.preference-tooltip-enter-from,
+.preference-tooltip-leave-to {
+  opacity: 0;
+}
+
+.preference-tooltip-enter-from .preference-popover-bubble,
+.preference-tooltip-leave-to .preference-popover-bubble {
+  transform: translateY(0.2rem) scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preference-tooltip-enter-active,
+  .preference-tooltip-leave-active,
+  .preference-tooltip-enter-active .preference-popover-bubble,
+  .preference-tooltip-leave-active .preference-popover-bubble {
+    transition: none;
+  }
+}
+
 .preference-popover-bubble::before {
   content: '';
   position: absolute;
@@ -505,21 +585,6 @@ onBeforeUnmount(() => {
   flex-grow: 1;
   font-size: 0.85rem;
   font-weight: 600;
-}
-
-.preference-popover-close {
-  flex: none;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--bs-secondary-color);
-  font-size: 0.7rem;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.preference-popover-close:hover {
-  color: var(--bs-body-color);
 }
 
 .preference-popover-body {

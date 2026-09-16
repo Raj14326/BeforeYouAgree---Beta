@@ -58,4 +58,15 @@ describe('personalised risk score', () => {
     expect(personalisedRiskLevel(75)).toBe('high')
     expect(personalisedRiskLevel(100)).toBe('high')
   })
+
+  it('uses every detected category but no priority bonus when preferences are off', () => {
+    const result = personalisedRiskScore(
+      [{ id: 'unilateral_change', name: 'Unilateral change', score: 0.8 }],
+      priorities,
+      new Set(),
+      false,
+    )
+
+    expect(result).toMatchObject({ score: 56, detectionScore: 56, preferenceScore: 0 })
+  })
 })

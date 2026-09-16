@@ -23,6 +23,7 @@ describe('ClauseCard personalised score', () => {
         finding,
         categoryPriority: ['unilateral_change', 'arbitration', 'content_removal'],
         enabledCategoryIds: new Set(['unilateral_change', 'arbitration', 'content_removal']),
+        riskPreferencesEnabled: true,
       },
     })
 
@@ -45,10 +46,25 @@ describe('ClauseCard personalised score', () => {
         },
         categoryPriority: ['unilateral_change', 'arbitration', 'content_removal'],
         enabledCategoryIds: new Set(['unilateral_change', 'arbitration', 'content_removal']),
+        riskPreferencesEnabled: true,
       },
     })
 
     expect(wrapper.get('.badge').text()).toBe('Medium personalised risk')
     expect(wrapper.get('[aria-label^="Personalised risk score"]').text()).toContain('56')
+  })
+
+  it('removes the preference bonus when risk preferences are off', () => {
+    const wrapper = mount(ClauseCard, {
+      props: {
+        finding,
+        categoryPriority: ['unilateral_change', 'arbitration', 'content_removal'],
+        enabledCategoryIds: new Set<string>(),
+        riskPreferencesEnabled: false,
+      },
+    })
+
+    expect(wrapper.get('[aria-label^="Risk score"]').text()).toContain('56')
+    expect(wrapper.get('.badge').text()).toBe('Medium risk')
   })
 })
