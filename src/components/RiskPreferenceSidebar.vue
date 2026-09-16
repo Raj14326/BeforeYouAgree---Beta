@@ -49,6 +49,36 @@ const privacyCategories = ref<PreferenceCategory[]>(
 )
 const advancedOpen = ref(false)
 
+// Click-to-open "what does this mean" bubble, anchored to whichever info
+// button was clicked. `key` is the category id (or 'privacy-group' for the
+// Privacy card itself) so only one bubble is open, and re-clicking the same
+// trigger closes it.
+type ActiveInfo = { key: string; name: string; description: string; top: number; left: number; placement: 'left' | 'right' }
+const activeInfo = ref<ActiveInfo | null>(null)
+const preferenceListEl = ref<HTMLElement | null>(null)
+
+function toggleInfo(event: MouseEvent, key: string, name: string, description: string) {
+  if (activeInfo.value?.key === key) {
+    activeInfo.value = null
+    return
+  }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const bubbleWidth = 260
+  const fitsRight = rect.right + 12 + bubbleWidth <= window.innerWidth
+  activeInfo.value = {
+    key,
+    name,
+    description,
+    top: rect.top + rect.height / 2,
+    left: fitsRight ? rect.right + 12 : rect.left - 12,
+    placement: fitsRight ? 'right' : 'left',
+  }
+}
+
+function closeInfo() {
+  activeInfo.value = null
+}
+
 const privacyAllEnabled = computed(() => privacyCategories.value.every((category) => category.enabled))
 const privacySomeEnabled = computed(() => privacyCategories.value.some((category) => category.enabled))
 const privacyMasterInput = ref<HTMLInputElement | null>(null)
@@ -93,8 +123,18 @@ function syncOpenToViewport(event: MediaQueryListEvent) {
   open.value = event.matches
 }
 
-onMounted(() => desktopQuery.addEventListener('change', syncOpenToViewport))
-onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewport))
+onMounted(() => {
+  desktopQuery.addEventListener('change', syncOpenToViewport)
+  window.addEventListener('click', closeInfo)
+  window.addEventListener('resize', closeInfo)
+  preferenceListEl.value?.addEventListener('scroll', closeInfo, { passive: true })
+})
+onBeforeUnmount(() => {
+  desktopQuery.removeEventListener('change', syncOpenToViewport)
+  window.removeEventListener('click', closeInfo)
+  window.removeEventListener('resize', closeInfo)
+  preferenceListEl.value?.removeEventListener('scroll', closeInfo)
+})
 </script>
 
 <template>
@@ -114,7 +154,7 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
           Drag preferences to set their priority. Clauses matching the first preference appear first.
         </p>
 
-        <div class="preference-list">
+        <div ref="preferenceListEl" class="preference-list">
           <draggable
             v-model="topLevelPreferences"
             item-key="id"
@@ -124,7 +164,10 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
           >
             <template #item="{ element: item }">
               <div>
-                <div class="preference-card">
+                <div
+                  class="preference-card"
+                  :class="{ 'preference-card--group-open': item.kind === 'privacy' && advancedOpen }"
+                >
                   <button class="preference-drag-handle" type="button" aria-label="Drag to change priority">
                     <i class="bi bi-grip-vertical" aria-hidden="true"></i>
                   </button>
@@ -132,8 +175,17 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
                     <span class="preference-dot" :style="{ backgroundColor: categoryColor(item.category.id) }"></span>
                     <div class="preference-text flex-grow-1">
                       <div class="preference-name">{{ item.category.name }}</div>
-                      <div class="preference-description">{{ item.category.description }}</div>
                     </div>
+                    <button
+                      type="button"
+                      class="preference-info-btn"
+                      :class="{ 'preference-info-btn--active': activeInfo?.key === item.category.id }"
+                      aria-haspopup="dialog"
+                      :aria-label="`About ${item.category.name}`"
+                      @click.stop="toggleInfo($event, item.category.id, item.category.name, item.category.description)"
+                    >
+                      <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
                     <div class="form-check form-switch mb-0">
                       <input
                         :id="`pref-${item.category.id}`"
@@ -149,8 +201,17 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
                     <span class="preference-dot" :style="{ backgroundColor: categoryColor(PRIVACY_GROUP.id) }"></span>
                     <div class="preference-text flex-grow-1">
                       <div class="preference-name">{{ PRIVACY_GROUP.name }}</div>
-                      <div class="preference-description">{{ PRIVACY_GROUP.description }}</div>
                     </div>
+                    <button
+                      type="button"
+                      class="preference-info-btn"
+                      :class="{ 'preference-info-btn--active': activeInfo?.key === 'privacy-group' }"
+                      aria-haspopup="dialog"
+                      :aria-label="`About ${PRIVACY_GROUP.name}`"
+                      @click.stop="toggleInfo($event, 'privacy-group', PRIVACY_GROUP.name, PRIVACY_GROUP.description)"
+                    >
+                      <i class="bi bi-info-circle" aria-hidden="true"></i>
+                    </button>
                     <div class="form-check form-switch mb-0">
                       <input
                         id="pref-privacy-group"
@@ -163,50 +224,60 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
                         @change="togglePrivacyGroup"
                       />
                     </div>
+                    <button
+                      type="button"
+                      class="preference-expand-btn"
+                      :aria-expanded="advancedOpen"
+                      :aria-label="advancedOpen ? 'Hide individual privacy categories' : 'Show individual privacy categories'"
+                      @click="advancedOpen = !advancedOpen"
+                    >
+                      <i class="bi" :class="advancedOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
+                    </button>
                   </template>
                 </div>
 
-                <template v-if="item.kind === 'privacy'">
-                  <button
-                    type="button"
-                    class="btn btn-sm btn-link p-0 mb-2 preference-advanced-toggle"
-                    :aria-expanded="advancedOpen"
-                    @click="advancedOpen = !advancedOpen"
-                  >
-                    <i class="bi" :class="advancedOpen ? 'bi-chevron-down' : 'bi-chevron-right'" aria-hidden="true"></i>
-                    Advanced: individual privacy categories
-                  </button>
-                  <draggable
-                    v-if="advancedOpen"
-                    v-model="privacyCategories"
-                    class="preference-sublist"
-                    item-key="id"
-                    handle=".preference-drag-handle"
-                    ghost-class="preference-card-ghost"
-                  >
-                    <template #item="{ element: category }">
-                      <div class="preference-card preference-subcard">
-                        <button class="preference-drag-handle" type="button" aria-label="Drag to change privacy priority">
-                          <i class="bi bi-grip-vertical" aria-hidden="true"></i>
-                        </button>
-                        <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
-                        <div class="preference-text flex-grow-1">
-                          <div class="preference-name">{{ category.name }}</div>
-                          <div class="preference-description">{{ category.description }}</div>
+                <template v-if="item.kind === 'privacy' && advancedOpen">
+                  <div class="preference-subgroup">
+                    <draggable
+                      v-model="privacyCategories"
+                      class="preference-sublist"
+                      item-key="id"
+                      handle=".preference-drag-handle"
+                      ghost-class="preference-card-ghost"
+                    >
+                      <template #item="{ element: category }">
+                        <div class="preference-card preference-subcard">
+                          <button class="preference-drag-handle" type="button" aria-label="Drag to change privacy priority">
+                            <i class="bi bi-grip-vertical" aria-hidden="true"></i>
+                          </button>
+                          <span class="preference-dot" :style="{ backgroundColor: categoryColor(category.id) }"></span>
+                          <div class="preference-text flex-grow-1">
+                            <div class="preference-name">{{ category.name }}</div>
+                          </div>
+                          <button
+                            type="button"
+                            class="preference-info-btn"
+                            :class="{ 'preference-info-btn--active': activeInfo?.key === category.id }"
+                            aria-haspopup="dialog"
+                            :aria-label="`About ${category.name}`"
+                            @click.stop="toggleInfo($event, category.id, category.name, category.description)"
+                          >
+                            <i class="bi bi-info-circle" aria-hidden="true"></i>
+                          </button>
+                          <div class="form-check form-switch mb-0">
+                            <input
+                              :id="`pref-${category.id}`"
+                              v-model="category.enabled"
+                              class="form-check-input"
+                              type="checkbox"
+                              role="switch"
+                              :aria-label="`Include ${category.name} in risk preferences`"
+                            />
+                          </div>
                         </div>
-                        <div class="form-check form-switch mb-0">
-                          <input
-                            :id="`pref-${category.id}`"
-                            v-model="category.enabled"
-                            class="form-check-input"
-                            type="checkbox"
-                            role="switch"
-                            :aria-label="`Include ${category.name} in risk preferences`"
-                          />
-                        </div>
-                      </div>
-                    </template>
-                  </draggable>
+                      </template>
+                    </draggable>
+                  </div>
                 </template>
               </div>
             </template>
@@ -215,6 +286,28 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
       </div>
     </details>
   </aside>
+
+  <Teleport to="body">
+    <div
+      v-if="activeInfo"
+      class="preference-popover"
+      :class="`preference-popover--${activeInfo.placement}`"
+      :style="{ top: `${activeInfo.top}px`, left: `${activeInfo.left}px` }"
+      role="dialog"
+      :aria-label="activeInfo.name"
+      @click.stop
+    >
+      <div class="preference-popover-bubble">
+        <div class="preference-popover-header">
+          <span class="preference-popover-title">{{ activeInfo.name }}</span>
+          <button type="button" class="preference-popover-close" aria-label="Close" @click="closeInfo">
+            <i class="bi bi-x-lg" aria-hidden="true"></i>
+          </button>
+        </div>
+        <p class="preference-popover-body">{{ activeInfo.description }}</p>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -252,6 +345,12 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   margin-bottom: 0.45rem;
 }
 
+.preference-card--group-open {
+  margin-bottom: 0;
+  border-radius: var(--bs-border-radius-sm) var(--bs-border-radius-sm) 0 0;
+  border-bottom-color: transparent;
+}
+
 .preference-drag-handle {
   flex: none;
   margin: -0.25rem 0 -0.25rem -0.35rem;
@@ -275,9 +374,22 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.12);
 }
 
+.preference-subgroup {
+  padding: 0.4rem 0.4rem 0.4rem 1.4rem;
+  border: 1px solid var(--bs-border-color-translucent);
+  border-top: 0;
+  border-radius: 0 0 var(--bs-border-radius-sm) var(--bs-border-radius-sm);
+  background-color: var(--bs-tertiary-bg);
+  margin-bottom: 0.45rem;
+}
+
 .preference-subcard {
-  margin-left: 1rem;
   background-color: var(--bs-body-bg);
+  margin-bottom: 0.35rem;
+}
+
+.preference-subcard:last-child {
+  margin-bottom: 0;
 }
 
 .preference-dot {
@@ -285,8 +397,7 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  margin-top: 0.3rem;
-  align-self: flex-start;
+  align-self: center;
 }
 
 .preference-text {
@@ -297,18 +408,124 @@ onBeforeUnmount(() => desktopQuery.removeEventListener('change', syncOpenToViewp
   font-size: 0.85rem;
 }
 
-.preference-description {
-  font-size: 0.75rem;
+.preference-info-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
   color: var(--bs-secondary-color);
-  line-height: 1.3;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.85rem;
 }
 
-.preference-advanced-toggle {
-  font-size: 0.8rem;
-  text-decoration: none;
+.preference-info-btn:hover,
+.preference-info-btn--active {
+  color: var(--bs-body-color);
+  background-color: var(--bs-border-color-translucent);
+}
+
+.preference-expand-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0.15rem 0.2rem;
+  margin: -0.25rem -0.35rem -0.25rem 0;
+  border: 0;
+  border-radius: var(--bs-border-radius-sm);
+  color: var(--bs-secondary-color);
+  background: transparent;
+}
+
+.preference-expand-btn:hover {
+  color: var(--bs-body-color);
 }
 
 .preference-sublist {
-  margin-bottom: 0.45rem;
+  margin-bottom: 0;
+}
+
+.preference-popover {
+  position: fixed;
+  z-index: 1080;
+  width: 260px;
+  max-width: calc(100vw - 2rem);
+  transform: translateY(-50%);
+}
+
+.preference-popover--left {
+  transform: translate(-100%, -50%);
+}
+
+.preference-popover-bubble {
+  position: relative;
+  background-color: var(--bs-body-bg);
+  border: 1px solid var(--bs-border-color-translucent);
+  border-radius: 0.75rem;
+  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.2);
+  padding: 0.65rem 0.8rem;
+}
+
+.preference-popover-bubble::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 0.65rem;
+  height: 0.65rem;
+  background-color: var(--bs-body-bg);
+}
+
+.preference-popover--right .preference-popover-bubble::before {
+  left: -0.33rem;
+  border-bottom: 1px solid var(--bs-border-color-translucent);
+  border-left: 1px solid var(--bs-border-color-translucent);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.preference-popover--left .preference-popover-bubble::before {
+  right: -0.33rem;
+  border-top: 1px solid var(--bs-border-color-translucent);
+  border-right: 1px solid var(--bs-border-color-translucent);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.preference-popover-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.preference-popover-title {
+  flex-grow: 1;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.preference-popover-close {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--bs-secondary-color);
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.preference-popover-close:hover {
+  color: var(--bs-body-color);
+}
+
+.preference-popover-body {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--bs-secondary-color);
+  line-height: 1.35;
 }
 </style>
