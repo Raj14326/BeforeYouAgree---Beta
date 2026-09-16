@@ -11,23 +11,32 @@ import { riskLevelBadgeClass, riskLevelColor } from '@/lib/risk-level'
 import type { RiskFinding } from '@/types'
 import { computed } from 'vue'
 
-const { finding, categoryPriority, enabledCategoryIds } = defineProps<{
+const { finding, categoryPriority, enabledCategoryIds, riskPreferencesEnabled } = defineProps<{
   finding: RiskFinding
   categoryPriority: string[]
   enabledCategoryIds: Set<string>
+  riskPreferencesEnabled: boolean
 }>()
 
 const personalisedScore = computed(() =>
-  personalisedRiskScore(finding.categories, categoryPriority, enabledCategoryIds),
+  personalisedRiskScore(
+    finding.categories,
+    categoryPriority,
+    enabledCategoryIds,
+    riskPreferencesEnabled,
+  ),
 )
 const displayedRiskLevel = computed(() => personalisedRiskLevel(personalisedScore.value.score))
 const displayedRiskLabel = computed(
   () =>
-    `${displayedRiskLevel.value[0]!.toUpperCase()}${displayedRiskLevel.value.slice(1)} personalised risk`,
+    `${displayedRiskLevel.value[0]!.toUpperCase()}${displayedRiskLevel.value.slice(1)}${riskPreferencesEnabled ? ' personalised' : ''} risk`,
 )
 
 const scoreLabel = computed(() => {
   const category = personalisedScore.value.primaryCategoryName
+  if (!riskPreferencesEnabled) {
+    return `Risk score ${personalisedScore.value.score} out of 100. Risk preferences are off.`
+  }
   return category
     ? `Personalised risk score ${personalisedScore.value.score} out of 100. Highest priority match: ${category}.`
     : 'Personalised risk score 0 out of 100. No enabled risk categories matched.'
@@ -78,7 +87,9 @@ const emit = defineEmits<{
 
     <div class="clause-card-score" :aria-label="scoreLabel" :title="scoreLabel">
       <div class="clause-card-score-value">{{ personalisedScore.score }}</div>
-      <div class="clause-card-score-label">Personalised risk</div>
+      <div class="clause-card-score-label">
+        {{ riskPreferencesEnabled ? 'Personalised risk' : 'Risk score' }}
+      </div>
     </div>
   </article>
 </template>

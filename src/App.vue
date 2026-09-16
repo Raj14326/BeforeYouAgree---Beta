@@ -78,6 +78,8 @@ const analyses = ref<Record<string, Analysis>>({})
 const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
 /** Which risk categories currently pass the sidebar filter; starts with every category enabled. */
 const enabledCategoryIds = ref<Set<string>>(new Set(ALL_CATEGORY_IDS))
+/** Whether category filtering, ordering and preference bonuses are currently applied. */
+const riskPreferencesEnabled = ref(true)
 /** Category order chosen in the sidebar; earlier categories sort their matching clauses first. */
 const categoryPriority = ref<string[]>([...ALL_CATEGORY_IDS])
 const analysisErrors = ref<Record<string, string>>({})
@@ -399,6 +401,7 @@ async function retrieveSelectedVersion(termType: string) {
       <RiskPreferenceSidebar
         v-model:enabled-category-ids="enabledCategoryIds"
         v-model:category-priority="categoryPriority"
+        v-model:risk-preferences-enabled="riskPreferencesEnabled"
       />
 
       <div class="main-column">
@@ -444,6 +447,7 @@ async function retrieveSelectedVersion(termType: string) {
           :filter="activeFilter"
           :enabled-category-ids="enabledCategoryIds"
           :category-priority="categoryPriority"
+          :risk-preferences-enabled="riskPreferencesEnabled"
           @update:filter="setActiveFilter"
           @show-in-text="showInText"
         />
