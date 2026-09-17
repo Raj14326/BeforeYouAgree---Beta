@@ -67,6 +67,29 @@ const flaggedShare = computed(() => {
   return Math.round((analysis.riskyClauseCount / analysis.clauseCount) * 100)
 })
 
+/**
+ * Document-level risk score: blends average personalised severity across
+ * risky clauses with how much of the document was flagged, so a handful of
+ * severe clauses in an otherwise clean document don't read as high-risk.
+ */
+const documentRiskScore = computed(() => {
+  const riskyFindings = analysis?.findings.filter((finding) => finding.predictedLabel === 'risky') ?? []
+  if (!riskyFindings.length) return 0
+  const total = riskyFindings.reduce(
+    (sum, finding) =>
+      sum +
+      personalisedRiskScore(
+        finding.categories,
+        categoryPriority,
+        enabledCategoryIds,
+        riskPreferencesEnabled,
+      ).score,
+    0,
+  )
+  const avgSeverity = total / riskyFindings.length
+  return Math.round(0.7 * avgSeverity + 0.3 * flaggedShare.value)
+})
+
 /** Bootstrap colour for the progress bar: red ≥ 25% flagged, amber ≥ 10%, else green. */
 const severityClass = computed(() => {
   if (flaggedShare.value >= 25) return 'bg-danger'
@@ -101,13 +124,13 @@ const severityClass = computed(() => {
 
         <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
           <div class="text-center lh-1">
-            <div class="display-6 fw-bold">{{ analysis.riskyClauseCount }}</div>
-            <div class="small text-body-secondary">
-              risky {{ analysis.riskyClauseCount === 1 ? 'clause' : 'clauses' }}
-            </div>
+            <div class="display-6 fw-bold">{{ documentRiskScore }}</div>
+            <div class="small text-body-secondary">document risk score</div>
           </div>
           <div class="flex-grow-1" style="min-width: 220px">
-            <p class="small mb-1">{{ flaggedShare }}% of {{ analysis.clauseCount }} clauses flagged</p>
+            <p class="small mb-1">
+              {{ analysis.riskyClauseCount }}/{{ analysis.clauseCount }} clauses flagged ({{ flaggedShare }}%)
+            </p>
             <div
               class="progress"
               role="progressbar"
