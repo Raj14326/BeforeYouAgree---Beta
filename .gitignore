@@ -25,6 +25,7 @@ coverage
 *.sw?
 html-to-plain-text.spec.ts
 *.tsbuildinfo
+/.vite/
 
 .eslintcache
 
@@ -40,3 +41,15 @@ __screenshots__/
 
 test-results/
 playwright-report/
+
+
+ml/*
+ml/data/
+ml/data/*
+ml/data/unfair_tos/
+ml/data/unfair_tos/**
+ml/train_m006_unfair_tos.py
+ml/sample_policy.txt
+
+# Local model weights are packaged into the AWS container and never pushed to GitHub.
+/ml/local-models/

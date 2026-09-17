@@ -1,45 +1,41 @@
 <script setup lang="ts">
+/**
+ * App.vue: the main Before You Agree user interface.
+ *
+ * Search for a service, then click a document card to retrieve and analyse
+ * that one document (nothing is fetched for the others until clicked); read
+ * the flagged clauses for whichever document is currently active, in
+ * context against the original text.
+ *
+ * It talks only to the backend API (see `server/index.ts`); `VITE_API_URL` sets
+ * the base URL (empty in dev, where Vite proxies `/api`). When the catalogue
+ * endpoint is unreachable the UI falls back to {@link FALLBACK_SERVICES} so the
+ * page is still usable.
+ *
+ * Layout: a header (brand + quick guide + theme toggle), then a two-column
+ * grid — the risk-preference sidebar (chunk 5, placeholder) on the left, and
+ * on the right: the search bar (1), one card per document type (2), the
+ * active document's clauses (3), and its original text (4).
+ */
+
 import { computed, nextTick, onMounted, ref } from 'vue'
-import {
-  ArrowRight,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  ExternalLink,
-  FileSearch,
-  FileText,
-  LoaderCircle,
-  Search,
-  ShieldCheck,
-  Sparkles,
-} from '@lucide/vue'
+import logoUrl from './assets/BYA_logo.png'
+import QuickGuide from './components/QuickGuide.vue'
+import SearchBar from './components/SearchBar.vue'
+import ServiceDocumentCard from './components/ServiceDocumentCard.vue'
+import ClausesPanel from './components/ClausesPanel.vue'
+import OriginalDocumentPanel from './components/OriginalDocumentPanel.vue'
+import RiskPreferenceSidebar from './components/RiskPreferenceSidebar.vue'
+import { apiUrl } from '@/lib/api'
+import { buildDocumentViewHtml, clauseId } from '@/lib/document-view'
+import { ALL_CATEGORY_IDS } from '@/lib/risk-categories'
+import type { Analysis, Declaration, Retrieval, RiskFinding, Service, Term, VersionOption } from '@/types'
 
-type Term = {
-  sourceUrl: string | null
-  available: boolean
-  latestUrl: string | null
-  updatedAt: string | null
-  historyAvailable: boolean
-  historyUrl: string | null
-}
-type Declaration = { name: string; terms: Record<string, Term> }
-type Service = { name: string; path: string }
-type VersionOption = { id: string; updatedAt: string | null; label: string; url: string }
-type Retrieval = {
-  format: 'plain_text'
-  id: string
-  serviceId: string
-  termType: string
-  sourceUrl: string | null
-  fetchDate: string | null
-  characterCount: number
-  content: string
-  repository: string
-  repositoryUrl: string
-}
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
+/** Offline service list used when `GET /api/services` fails on load. */
 const FALLBACK_SERVICES: Service[] = [
   'Amazon',
   'Apple',
@@ -63,58 +59,78 @@ const FALLBACK_SERVICES: Service[] = [
   'YouTube',
 ].map((name) => ({ name, path: `declarations/${name}.json` }))
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+// ---------------------------------------------------------------------------
+// Reactive state
+//    Per-document maps below are keyed by term type ("terms", "privacy", …) so
+//    several documents can be retrieved and analysed independently at once.
+// ---------------------------------------------------------------------------
 
-function apiUrl(path: string) {
-  return `${API_BASE_URL}${path.startsWith('/') ? path : `/${path}`}`
-}
-
-const query = ref('')
 const services = ref<Service[]>([])
 const selectedService = ref<Declaration | null>(null)
 const isCatalogueLoading = ref(true)
 const isServiceLoading = ref(false)
 const catalogueIsFallback = ref(false)
-const retrievingTerm = ref<string | null>(null)
+const retrievingTerm = ref<Record<string, boolean>>({})
+const analysingTerm = ref<Record<string, boolean>>({})
 const retrievals = ref<Record<string, Retrieval>>({})
 const retrievalErrors = ref<Record<string, string>>({})
-const collapsedTerms = ref<Record<string, boolean>>({})
-const failedBrandIcons = ref<Record<string, boolean>>({})
+const analyses = ref<Record<string, Analysis>>({})
+const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
+/** Which risk categories currently pass the sidebar filter; starts with every category enabled. */
+const enabledCategoryIds = ref<Set<string>>(new Set(ALL_CATEGORY_IDS))
+/** Whether category filtering, ordering and preference bonuses are currently applied. */
+const riskPreferencesEnabled = ref(true)
+/** Category order chosen in the sidebar; earlier categories sort their matching clauses first. */
+const categoryPriority = ref<string[]>([...ALL_CATEGORY_IDS])
+const analysisErrors = ref<Record<string, string>>({})
+/** The document type whose clauses/original text are shown in chunks 3–4. */
+const activeTerm = ref<string | null>(null)
+const originalDocOpen = ref(false)
+const theme = ref<'light' | 'dark'>(
+  document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
+)
 const openHistoryTerm = ref<string | null>(null)
 const versions = ref<Record<string, VersionOption[]>>({})
 const selectedVersions = ref<Record<string, string>>({})
 const loadingHistoryTerm = ref<string | null>(null)
 const error = ref('')
-const isOpen = ref(false)
-const activeIndex = ref(-1)
-const searchInput = ref<HTMLInputElement | null>(null)
 const resultsSection = ref<HTMLElement | null>(null)
-let searchTimer: ReturnType<typeof setTimeout> | undefined
 
-const suggestions = computed(() => {
-  const needle = query.value.trim().toLowerCase()
-  if (!needle) return services.value.slice(0, 7)
-  return services.value
-    .filter((service) => service.name.toLowerCase().includes(needle))
-    .sort((a, b) => {
-      const aStarts = a.name.toLowerCase().startsWith(needle) ? 0 : 1
-      const bStarts = b.name.toLowerCase().startsWith(needle) ? 0 : 1
-      return aStarts - bStarts || a.name.localeCompare(b.name)
-    })
-    .slice(0, 7)
+// ---------------------------------------------------------------------------
+// Computed
+// ---------------------------------------------------------------------------
+
+/** `[termType, Term]` pairs for the selected service, in API order. */
+const termEntries = computed(
+  () => Object.entries(selectedService.value?.terms ?? {}) as Array<[string, Term]>,
+)
+
+const activeAnalysis = computed(() => (activeTerm.value ? analyses.value[activeTerm.value] : undefined))
+
+const activeFilter = computed<RiskFinding['predictedLabel']>(
+  () => (activeTerm.value && findingFilters.value[activeTerm.value]) || 'risky',
+)
+
+const activeDocumentHtml = computed(() => {
+  if (!activeTerm.value) return ''
+  return buildDocumentViewHtml(
+    retrievals.value[activeTerm.value]?.content ?? '',
+    analyses.value[activeTerm.value],
+    activeTerm.value,
+  )
 })
 
-const initials = computed(() =>
-  selectedService.value?.name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase(),
-)
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
 
 onMounted(loadCatalogue)
 
+// ---------------------------------------------------------------------------
+// API calls
+// ---------------------------------------------------------------------------
+
+/** Load the full service catalogue once on mount; on failure use {@link FALLBACK_SERVICES}. */
 async function loadCatalogue() {
   try {
     const response = await fetch(apiUrl('/api/services'))
@@ -130,68 +146,27 @@ async function loadCatalogue() {
   }
 }
 
-function handleInput() {
-  isOpen.value = true
-  activeIndex.value = -1
-  selectedService.value = null
-  error.value = ''
-  clearTimeout(searchTimer)
-  const needle = query.value.trim()
-  if (needle.length < 2) return
-  searchTimer = setTimeout(() => searchServices(needle), 250)
-}
-
-async function searchServices(needle: string) {
-  try {
-    const response = await fetch(apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`))
-    if (!response.ok) return
-    const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
-    if (query.value.trim() === needle) {
-      services.value = payload.data.map((service) => ({ name: service.name, path: service.id }))
-      catalogueIsFallback.value = false
-    }
-  } catch {
-    // Keep the last successful catalogue while upstream search is unavailable.
-  }
-}
-
-function handleKeydown(event: KeyboardEvent) {
-  if (!isOpen.value && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) isOpen.value = true
-  if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    activeIndex.value = Math.min(activeIndex.value + 1, suggestions.value.length - 1)
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    activeIndex.value = Math.max(activeIndex.value - 1, 0)
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    const service = suggestions.value[activeIndex.value] ?? suggestions.value[0]
-    if (service) selectService(service)
-  } else if (event.key === 'Escape') {
-    isOpen.value = false
-  }
-}
-
-async function submitSearch() {
-  const exact = services.value.find(
-    (service) => service.name.toLowerCase() === query.value.trim().toLowerCase(),
-  )
-  const service = exact ?? suggestions.value[0]
-  if (service) await selectService(service)
-  else error.value = 'No matching service is currently available from ToS;DR.'
-}
-
+/**
+ * Load one service's declaration and show its document cards. Resets every
+ * per-document map (retrievals, analyses, history, …) so nothing leaks from
+ * the previously viewed service, then auto-retrieves and auto-analyses every
+ * available document in the background.
+ */
 async function selectService(service: Service) {
-  query.value = service.name
-  isOpen.value = false
   isServiceLoading.value = true
   selectedService.value = null
   retrievals.value = {}
   retrievalErrors.value = {}
-  collapsedTerms.value = {}
+  analyses.value = {}
+  findingFilters.value = {}
+  analysisErrors.value = {}
+  retrievingTerm.value = {}
+  analysingTerm.value = {}
   openHistoryTerm.value = null
   versions.value = {}
   selectedVersions.value = {}
+  activeTerm.value = null
+  originalDocOpen.value = false
   error.value = ''
 
   try {
@@ -205,18 +180,26 @@ async function selectService(service: Service) {
       name: payload.name,
       terms: Object.fromEntries(payload.terms.map(({ type, ...term }) => [type, term])),
     }
+    // Nothing is retrieved or analysed yet — that happens per document, on
+    // first click (see activateAndLoad), so selecting a service doesn't
+    // fan out an API call per document type.
+    isServiceLoading.value = false
     await nextTick()
     resultsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   } catch {
     error.value = `We could not retrieve ${service.name} from ToS;DR right now.`
-  } finally {
     isServiceLoading.value = false
   }
 }
 
+/**
+ * Fetch a document's plain text. Pass `versionUrl` to load a specific
+ * archived version; otherwise the term's `latestUrl` is used. Clears any
+ * prior analysis for this term so the viewer starts from raw text.
+ */
 async function retrieveTerm(termType: string, versionUrl?: string) {
-  if (!selectedService.value || retrievingTerm.value) return
-  retrievingTerm.value = termType
+  if (!selectedService.value) return
+  retrievingTerm.value[termType] = true
   retrievalErrors.value[termType] = ''
   try {
     const term = selectedService.value.terms[termType]
@@ -225,15 +208,127 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
     const payload = (await response.json()) as Retrieval | { error: string }
     if (!response.ok) throw new Error('error' in payload ? payload.error : 'Retrieval failed')
     retrievals.value[termType] = payload as Retrieval
-    collapsedTerms.value[termType] = false
+    delete analyses.value[termType]
+    delete findingFilters.value[termType]
+    analysisErrors.value[termType] = ''
+    if (activeTerm.value === termType) originalDocOpen.value = false
   } catch (cause) {
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be retrieved.'
   } finally {
-    retrievingTerm.value = null
+    retrievingTerm.value[termType] = false
   }
 }
 
+/**
+ * Send the retrieved text to `POST /api/analyze`, store the findings, and
+ * default the findings filter to "risky".
+ */
+async function analyseTerm(termType: string) {
+  const retrieval = retrievals.value[termType]
+  if (!retrieval || analysingTerm.value[termType]) return
+  analysingTerm.value[termType] = true
+  analysisErrors.value[termType] = ''
+  try {
+    const response = await fetch(apiUrl('/api/analyze'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: retrieval.content,
+        serviceName: selectedService.value?.name,
+        documentType: termType,
+      }),
+    })
+    const payload = (await response.json()) as Analysis | { error?: string }
+    if (!response.ok)
+      throw new Error('error' in payload && payload.error ? payload.error : 'Analysis failed.')
+    analyses.value[termType] = payload as Analysis
+    findingFilters.value[termType] = 'risky'
+  } catch (cause) {
+    analysisErrors.value[termType] =
+      cause instanceof Error ? cause.message : 'The document could not be analysed.'
+  } finally {
+    analysingTerm.value[termType] = false
+  }
+}
+
+/** Retrieve a document (optionally a specific archived version) then immediately analyse it. */
+async function autoLoadAndAnalyse(termType: string, versionUrl?: string) {
+  await retrieveTerm(termType, versionUrl)
+  if (retrievals.value[termType]) await analyseTerm(termType)
+}
+
+// ---------------------------------------------------------------------------
+// View helpers
+// ---------------------------------------------------------------------------
+
+/** True only for a document's very first automatic retrieve+analyse pass. */
+function isInitialLoading(termType: string) {
+  return (
+    !retrievals.value[termType] &&
+    Boolean(retrievingTerm.value[termType] || analysingTerm.value[termType])
+  )
+}
+
+/**
+ * Make a document card active (driving the clauses/original-text sections)
+ * and, on its first click, retrieve and analyse it — API calls only happen
+ * for documents the user actually opens, not for every document type as
+ * soon as a service is selected.
+ */
+function activateAndLoad(termType: string) {
+  const term = selectedService.value?.terms[termType]
+  if (!term?.available) return
+
+  if (activeTerm.value !== termType) {
+    activeTerm.value = termType
+    originalDocOpen.value = false
+  }
+
+  if (!retrievals.value[termType] && !retrievingTerm.value[termType] && !analysingTerm.value[termType]) {
+    void autoLoadAndAnalyse(termType)
+  }
+}
+
+function setActiveFilter(label: RiskFinding['predictedLabel']) {
+  if (activeTerm.value) findingFilters.value[activeTerm.value] = label
+}
+
+/**
+ * Expand the original-document panel and scroll to/flash the `<mark>` for a
+ * clause in the active document; respects `prefers-reduced-motion`.
+ */
+async function showInText(finding: RiskFinding) {
+  const termType = activeTerm.value
+  if (!termType) return
+  const index = analyses.value[termType]?.findings.indexOf(finding) ?? -1
+  if (index < 0) return
+  originalDocOpen.value = true
+  await nextTick()
+  const element = document.getElementById(clauseId(termType, index))
+  if (!element) return
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  element.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' })
+  element.classList.add('clause-mark-active')
+  window.setTimeout(() => element.classList.remove('clause-mark-active'), 1600)
+}
+
+/** Flip light/dark, apply it via `data-bs-theme` on `<html>`, and persist to localStorage. */
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-bs-theme', theme.value)
+  try {
+    localStorage.setItem('bya-theme', theme.value)
+  } catch {
+    // Storage can be unavailable (private mode); the toggle still applies this session.
+  }
+}
+
+/**
+ * Toggle the version-history popover for a term. On first open, fetch the
+ * list of archived versions and preselect the newest; results are cached in
+ * `versions` so reopening does not refetch.
+ */
 async function toggleHistory(termType: string) {
   if (openHistoryTerm.value === termType) {
     openHistoryTerm.value = null
@@ -258,289 +353,112 @@ async function toggleHistory(termType: string) {
   }
 }
 
+/** Retrieve and re-analyse the archived version chosen in the history picker, then close it. */
 async function retrieveSelectedVersion(termType: string) {
   const versionUrl = selectedVersions.value[termType]
   if (!versionUrl) return
-  await retrieveTerm(termType, versionUrl)
   openHistoryTerm.value = null
-}
-
-function formattedUpdatedAt(value: string | null) {
-  if (!value) return 'an unknown date'
-  return new Intl.DateTimeFormat('en-AU', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(value))
-}
-
-function sourceUrl(term: Term) {
-  return term.sourceUrl ?? ''
-}
-
-function brandIconUrl(serviceName: string) {
-  const aliases: Record<string, string> = {
-    'Twitter': 'x',
-    'Twitter (X)': 'x',
-    'Google Play': 'googleplay',
-    'Microsoft Teams': 'microsoftteams',
-    'YouTube': 'youtube',
-  }
-  const slug = aliases[serviceName] ?? serviceName.toLowerCase().replace(/[^a-z0-9]/g, '')
-  return `https://cdn.simpleicons.org/${encodeURIComponent(slug)}`
-}
-
-function markBrandIconFailed(serviceName: string) {
-  failedBrandIcons.value[serviceName] = true
+  await autoLoadAndAnalyse(termType, versionUrl)
 }
 </script>
 
+<!--
+  Structure: header (brand + quick guide + theme toggle) · two-column layout —
+  the risk-preference sidebar (chunk 5) on the left, and on the right: the
+  search bar (1), one card per document type (2), the active document's
+  clauses (3), and its original text (4).
+-->
 <template>
-  <div class="app-shell">
-    <header class="site-header">
-      <a class="brand" href="#" aria-label="Before You Agree home">
-        <span class="brand-mark"><Check :size="17" :stroke-width="3" /></span>
-        <span>Before You Agree</span>
+  <header class="border-bottom bg-body sticky-top">
+    <div class="container app-shell py-3 d-flex align-items-center flex-wrap gap-2">
+      <a href="/" class="brand-lockup" aria-label="Before You Agree - home">
+        <img :src="logoUrl" alt="" class="brand-logo" />
+        <span class="brand-wordmark">Before You Agree</span>
       </a>
-      <nav aria-label="Primary navigation">
-        <a href="#how-it-works">How it works</a>
-        <a href="#data-source">Data source</a>
-      </nav>
-      <span class="prototype-label">Prototype</span>
-    </header>
-
-    <main>
-      <section class="hero" aria-labelledby="page-title">
-        <div class="hero-grid" aria-hidden="true"></div>
-        <div class="hero-content">
-          <div class="eyebrow"><Sparkles :size="15" /> Terms, made readable</div>
-          <h1 id="page-title">Know what you’re agreeing to.</h1>
-          <p class="hero-copy">
-            Find a digital service and inspect the policies that shape your rights, data, and choices.
-          </p>
-
-          <form class="search-form" role="search" @submit.prevent="submitSearch">
-            <div class="combobox-wrap">
-              <Search class="search-icon" :size="22" aria-hidden="true" />
-              <input
-                ref="searchInput"
-                v-model="query"
-                type="search"
-                role="combobox"
-                aria-label="Search for a service"
-                aria-controls="service-suggestions"
-                :aria-expanded="isOpen"
-                :aria-activedescendant="activeIndex >= 0 ? `suggestion-${activeIndex}` : undefined"
-                autocomplete="off"
-                placeholder="Search Google, Spotify, Discord…"
-                @input="handleInput"
-                @focus="isOpen = true"
-                @keydown="handleKeydown"
-              />
-              <LoaderCircle v-if="isCatalogueLoading" class="input-loader" :size="20" />
-
-              <ul
-                v-if="isOpen && !isCatalogueLoading && (query || suggestions.length)"
-                id="service-suggestions"
-                class="suggestions"
-                role="listbox"
-              >
-                <li v-if="query" class="suggestions-heading">Services</li>
-                <li
-                  v-for="(service, index) in suggestions"
-                  :id="`suggestion-${index}`"
-                  :key="service.path"
-                  role="option"
-                  :aria-selected="index === activeIndex"
-                  :class="{ active: index === activeIndex }"
-                  @mousedown.prevent="selectService(service)"
-                >
-                  <span class="service-avatar">
-                    <img
-                      v-if="!failedBrandIcons[service.name]"
-                      :src="brandIconUrl(service.name)"
-                      alt=""
-                      loading="lazy"
-                      @error="markBrandIconFailed(service.name)"
-                    />
-                    <span v-else>{{ service.name.slice(0, 1).toUpperCase() }}</span>
-                  </span>
-                  <span>{{ service.name }}</span>
-                  <ChevronRight :size="18" />
-                </li>
-                <li v-if="!suggestions.length" class="empty-suggestion">No tracked services found</li>
-              </ul>
-            </div>
-            <button type="submit" :disabled="isCatalogueLoading || isServiceLoading">
-              <span>{{ isServiceLoading ? 'Retrieving' : 'Review terms' }}</span>
-              <LoaderCircle v-if="isServiceLoading" class="spin" :size="19" />
-              <ArrowRight v-else :size="19" />
-            </button>
-          </form>
-          <p class="search-meta">
-            <ShieldCheck :size="15" />
-            {{ services.length.toLocaleString() }} services loaded from ToS;DR
-            <span v-if="catalogueIsFallback">· limited offline catalogue</span>
-          </p>
-          <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-        </div>
-      </section>
-
-      <section v-if="selectedService" ref="resultsSection" class="results-section">
-        <div class="results-inner">
-          <div class="service-heading">
-            <span class="selected-avatar">
-              <img
-                v-if="!failedBrandIcons[selectedService.name]"
-                :src="brandIconUrl(selectedService.name)"
-                alt=""
-                @error="markBrandIconFailed(selectedService.name)"
-              />
-              <span v-else>{{ initials }}</span>
-            </span>
-            <div>
-              <span class="section-kicker">Available documents</span>
-              <h2>{{ selectedService.name }}</h2>
-            </div>
-            <span class="tracked-badge"><span></span> Tracked</span>
-          </div>
-
-          <div class="document-list">
-            <article
-              v-for="(term, termType) in selectedService.terms"
-              :key="termType"
-              :class="{ expanded: retrievals[termType as string] }"
-            >
-              <span class="document-icon"><FileText :size="21" /></span>
-              <div class="document-info">
-                <h3>{{ termType }}</h3>
-                <p>Current version updated {{ formattedUpdatedAt(term.updatedAt) }}.</p>
-              </div>
-              <div class="document-actions">
-                <button
-                  type="button"
-                  :disabled="Boolean(retrievingTerm) || !term.available"
-                  @click="retrieveTerm(termType as string)"
-                >
-                  <LoaderCircle
-                    v-if="retrievingTerm === termType"
-                    class="spin"
-                    :size="15"
-                  />
-                  <FileSearch v-else :size="15" />
-                  {{
-                    !term.available
-                      ? 'Not archived'
-                      : retrievals[termType as string]
-                        ? 'Refresh text'
-                        : 'Retrieve text'
-                  }}
-                </button>
-                <div v-if="term.historyAvailable" class="history-control">
-                  <button
-                    type="button"
-                    class="history-toggle"
-                    :aria-expanded="openHistoryTerm === termType"
-                    :aria-label="`Choose a historical version of ${termType}`"
-                    title="Choose a historical version"
-                    @click="toggleHistory(termType as string)"
-                  >
-                    <LoaderCircle
-                      v-if="loadingHistoryTerm === termType"
-                      class="spin"
-                      :size="15"
-                    />
-                    <CalendarDays v-else :size="16" />
-                  </button>
-                  <div v-if="openHistoryTerm === termType" class="history-menu">
-                    <span>Available update dates</span>
-                    <div class="history-fields">
-                      <select
-                        v-model="selectedVersions[termType as string]"
-                        :aria-label="`Version date for ${termType}`"
-                        :disabled="loadingHistoryTerm === termType"
-                      >
-                        <option value="" disabled>
-                          {{ loadingHistoryTerm === termType ? 'Loading dates…' : 'Select a date' }}
-                        </option>
-                        <option
-                          v-for="version in versions[termType as string] || []"
-                          :key="version.id"
-                          :value="version.url"
-                        >
-                          {{ version.label }}
-                        </option>
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      class="history-submit"
-                      :disabled="!selectedVersions[termType as string] || Boolean(retrievingTerm)"
-                      @click="retrieveSelectedVersion(termType as string)"
-                    >
-                      Retrieve selected version
-                    </button>
-                  </div>
-                </div>
-                <a v-if="sourceUrl(term)" :href="sourceUrl(term)" target="_blank" rel="noreferrer">
-                  Source <ExternalLink :size="15" />
-                </a>
-              </div>
-              <p v-if="retrievalErrors[termType as string]" class="retrieval-error" role="alert">
-                {{ retrievalErrors[termType as string] }}
-              </p>
-              <div
-                v-if="retrievals[termType as string]"
-                class="terms-preview"
-                :class="{ collapsed: collapsedTerms[termType as string] }"
-              >
-                <div class="terms-preview-header">
-                  <span>Plain text</span>
-                  <div>
-                    <span>
-                      {{ retrievals[termType as string]!.characterCount.toLocaleString() }} characters
-                      · {{ retrievals[termType as string]!.repository }}
-                    </span>
-                    <button
-                      type="button"
-                      :aria-label="collapsedTerms[termType as string] ? 'Expand terms' : 'Collapse terms'"
-                      :title="collapsedTerms[termType as string] ? 'Expand terms' : 'Collapse terms'"
-                      @click="collapsedTerms[termType as string] = !collapsedTerms[termType as string]"
-                    >
-                      <ChevronDown v-if="collapsedTerms[termType as string]" :size="17" />
-                      <ChevronUp v-else :size="17" />
-                    </button>
-                  </div>
-                </div>
-                <pre v-show="!collapsedTerms[termType as string]">{{ retrievals[termType as string]!.content }}</pre>
-              </div>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="how-it-works" class="process-section">
-        <div class="process-intro">
-          <span class="section-kicker">How it works</span>
-          <h2>A clearer path through the fine print.</h2>
-        </div>
-        <div class="steps">
-          <div><span>01</span><h3>Find a service</h3><p>Search the public catalogue of tracked digital services.</p></div>
-          <div><span>02</span><h3>Retrieve its terms</h3><p>Open current policies and independently archived versions.</p></div>
-          <div><span>03</span><h3>Understand the risk</h3><p>Automated clause analysis will be added in the next phase.</p></div>
-        </div>
-      </section>
-    </main>
-
-    <footer id="data-source">
-      <div class="brand footer-brand">
-        <span class="brand-mark"><Check :size="15" :stroke-width="3" /></span>
-        <span>Before You Agree</span>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <QuickGuide />
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary"
+          :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+          @click="toggleTheme"
+        >
+          <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
+        </button>
       </div>
-      <p>
-        Terms data provided by
-        <a href="https://tosdr.org" target="_blank" rel="noreferrer">ToS;DR</a>.
+    </div>
+  </header>
+
+  <main class="container app-shell my-4 my-md-5">
+    <div class="mb-4 mb-md-5">
+      <h1 class="h2 fw-bold mb-2">Read what you're agreeing to</h1>
+      <p class="text-body-secondary fs-5 mb-0">
+        Find a digital service and review the terms and policies behind it.
       </p>
-      <p>Informational only, not legal advice.</p>
-    </footer>
-  </div>
+    </div>
+
+    <div class="layout-grid">
+      <RiskPreferenceSidebar
+        v-model:enabled-category-ids="enabledCategoryIds"
+        v-model:category-priority="categoryPriority"
+        v-model:risk-preferences-enabled="riskPreferencesEnabled"
+      />
+
+      <div class="main-column">
+        <SearchBar
+          :services="services"
+          :is-catalogue-loading="isCatalogueLoading"
+          :is-service-loading="isServiceLoading"
+          :catalogue-is-fallback="catalogueIsFallback"
+          @select="selectService"
+        />
+
+        <div v-if="error" class="alert alert-warning" role="alert">{{ error }}</div>
+
+        <section v-if="selectedService" ref="resultsSection" class="document-cards">
+          <ServiceDocumentCard
+            v-for="[termType, term] in termEntries"
+            :key="termType"
+            :service-name="selectedService.name"
+            :term-type="termType"
+            :term="term"
+            :retrieval="retrievals[termType]"
+            :analysis="analyses[termType]"
+            :is-active="activeTerm === termType"
+            :is-loading="isInitialLoading(termType)"
+            :is-analysing="Boolean(analysingTerm[termType])"
+            :retrieval-error="retrievalErrors[termType] || ''"
+            :analysis-error="analysisErrors[termType] || ''"
+            :history-open="openHistoryTerm === termType"
+            :versions="versions[termType]"
+            :selected-version="selectedVersions[termType] || ''"
+            :loading-history="loadingHistoryTerm === termType"
+            @activate="activateAndLoad(termType)"
+            @analyse-again="analyseTerm(termType)"
+            @toggle-history="toggleHistory(termType)"
+            @update:selected-version="selectedVersions[termType] = $event"
+            @retrieve-version="retrieveSelectedVersion(termType)"
+          />
+        </section>
+
+        <ClausesPanel
+          v-if="activeTerm"
+          :analysis="activeAnalysis ?? null"
+          :filter="activeFilter"
+          :enabled-category-ids="enabledCategoryIds"
+          :category-priority="categoryPriority"
+          :risk-preferences-enabled="riskPreferencesEnabled"
+          @update:filter="setActiveFilter"
+          @show-in-text="showInText"
+        />
+
+        <OriginalDocumentPanel
+          :html="activeDocumentHtml"
+          :open="originalDocOpen"
+          :has-risky-findings="Boolean(activeAnalysis?.riskyClauseCount)"
+          @toggle="originalDocOpen = !originalDocOpen"
+        />
+      </div>
+    </div>
+  </main>
 </template>
