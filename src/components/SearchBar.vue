@@ -32,7 +32,20 @@ const searchCache = new Map<string, Service[]>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let searchController: AbortController | undefined
 
-/** Up to 10 services matching the current query (or the first 10 when empty). */
+/**
+ * Relevance tier for a service name against the typed needle: exact match,
+ * then prefix, then a later word starting with it, then any substring.
+ * Lower is more relevant.
+ */
+function matchRank(name: string, needle: string): number {
+  const lower = name.toLowerCase()
+  if (lower === needle) return 0
+  if (lower.startsWith(needle)) return 1
+  if (lower.includes(` ${needle}`)) return 2
+  return 3
+}
+
+/** Up to 10 services matching the current query (or the first 10 when empty), most relevant first. */
 const suggestions = computed(() => {
   const needle = query.value.trim().toLowerCase()
   if (!needle) return services.slice(0, 10)
@@ -40,12 +53,18 @@ const suggestions = computed(() => {
   const localMatches = services.filter((service) => service.name.toLowerCase().includes(needle))
   const matchingRemote = remoteSearch.value?.query === needle ? remoteSearch.value.services : []
   const seen = new Set<string>()
-  return [...localMatches, ...matchingRemote]
-    .filter((service) => {
-      if (seen.has(service.path)) return false
-      seen.add(service.path)
-      return true
+  const merged = [...localMatches, ...matchingRemote].filter((service) => {
+    if (seen.has(service.path)) return false
+    seen.add(service.path)
+    return true
+  })
+  return merged
+    .map((service, index) => ({ service, index }))
+    .sort((a, b) => {
+      const rankDiff = matchRank(a.service.name, needle) - matchRank(b.service.name, needle)
+      return rankDiff !== 0 ? rankDiff : a.index - b.index
     })
+    .map((entry) => entry.service)
     .slice(0, 10)
 })
 
