@@ -184,9 +184,11 @@ const containerVariants = computed(() => {
           animate="show"
         >
           <motion.div
-            v-for="(finding, index) in visibleFindings"
-            :key="`${finding.text}-${index}`"
+            v-for="finding in visibleFindings"
+            :key="`${finding.start}-${finding.end}`"
+            layout
             :variants="cardVariants"
+            :transition="{ type: 'spring', stiffness: 500, damping: 40 }"
           >
             <ClauseCard
               :finding="finding"
