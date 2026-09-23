@@ -23,6 +23,8 @@ const emit = defineEmits<{
   select: [service: Service]
 }>()
 
+const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
+
 const query = ref('')
 const isOpen = ref(false)
 const activeIndex = ref(-1)
@@ -215,14 +217,17 @@ function selectService(service: Service) {
         </AnimatePresence>
       </div>
       <div class="col-auto">
-        <button
+        <motion.button
           type="submit"
           class="btn btn-primary btn-lg"
           :disabled="isCatalogueLoading || isServiceLoading"
+          :while-hover="{ scale: 1.04, y: -2 }"
+          :while-press="{ scale: 0.97, y: 0 }"
+          :transition="BUTTON_SPRING"
         >
           <span v-if="isServiceLoading" class="spinner-border spinner-border-sm me-1"></span>
           {{ isServiceLoading ? 'Retrieving…' : 'Review terms' }}
-        </button>
+        </motion.button>
       </div>
     </div>
 

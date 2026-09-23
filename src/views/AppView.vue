@@ -19,6 +19,7 @@
  */
 
 import { computed, nextTick, onMounted, ref } from 'vue'
+import { motion } from 'motion-v'
 import logoUrl from '@/assets/BYA_logo.png'
 import QuickGuide from '@/components/QuickGuide.vue'
 import SearchBar from '@/components/SearchBar.vue'
@@ -95,6 +96,8 @@ const selectedVersions = ref<Record<string, string>>({})
 const loadingHistoryTerm = ref<string | null>(null)
 const error = ref('')
 const resultsSection = ref<HTMLElement | null>(null)
+
+const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
 
 // ---------------------------------------------------------------------------
 // Computed
@@ -377,14 +380,17 @@ async function retrieveSelectedVersion(termType: string) {
       </RouterLink>
       <div class="ms-auto d-flex align-items-center gap-2">
         <QuickGuide />
-        <button
+        <motion.button
           type="button"
           class="btn btn-sm btn-outline-secondary"
+          :while-hover="{ scale: 1.08, rotate: 12 }"
+          :while-press="{ scale: 0.9 }"
+          :transition="BUTTON_SPRING"
           :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
           @click="toggleTheme"
         >
           <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
-        </button>
+        </motion.button>
       </div>
     </div>
   </header>
