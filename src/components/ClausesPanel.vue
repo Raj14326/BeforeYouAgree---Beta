@@ -4,9 +4,24 @@
  * active document (chunk 3).
  */
 import { computed } from 'vue'
+import { motion } from 'motion-v'
 import { personalisedRiskScore } from '@/lib/personalised-risk-score'
 import type { Analysis, RiskFinding } from '@/types'
 import ClauseCard from './ClauseCard.vue'
+
+/**
+ * Cards fade/slide in one after another once analysis finishes. The base
+ * stagger is 0.12s per card, but that alone would take ~2.4s+ across 20+
+ * cards, so it's capped so the whole sequence still finishes within ~900ms.
+ */
+const STAGGER_CHILDREN = 0.12
+const DELAY_CHILDREN = 0.2
+const MAX_STAGGER_TOTAL_S = 0.9
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0 },
+}
 
 const { analysis, filter, enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = defineProps<{
   analysis: Analysis | null
@@ -96,6 +111,19 @@ const severityClass = computed(() => {
   if (flaggedShare.value >= 10) return 'bg-warning'
   return 'bg-success'
 })
+
+/** staggerChildren shrinks as the list grows so the full sequence stays under MAX_STAGGER_TOTAL_S. */
+const containerVariants = computed(() => {
+  const count = visibleFindings.value.length
+  const staggerChildren =
+    count > 1
+      ? Math.min(STAGGER_CHILDREN, (MAX_STAGGER_TOTAL_S - DELAY_CHILDREN) / (count - 1))
+      : STAGGER_CHILDREN
+  return {
+    hidden: {},
+    show: { transition: { staggerChildren, delayChildren: DELAY_CHILDREN } },
+  }
+})
 </script>
 
 <template>
@@ -148,17 +176,27 @@ const severityClass = computed(() => {
         <div v-if="!visibleFindings.length" class="text-body-secondary small">
           {{ filter === 'risky' ? 'No clauses were flagged as risky.' : 'Every analysed clause was flagged as risky.' }}
         </div>
-        <div v-else class="clauses-scroll">
-          <ClauseCard
+        <motion.div
+          v-else
+          class="clauses-scroll"
+          :variants="containerVariants"
+          initial="hidden"
+          animate="show"
+        >
+          <motion.div
             v-for="(finding, index) in visibleFindings"
             :key="`${finding.text}-${index}`"
-            :finding="finding"
-            :category-priority="categoryPriority"
-            :enabled-category-ids="enabledCategoryIds"
-            :risk-preferences-enabled="riskPreferencesEnabled"
-            @show-in-text="emit('show-in-text', finding)"
-          />
-        </div>
+            :variants="cardVariants"
+          >
+            <ClauseCard
+              :finding="finding"
+              :category-priority="categoryPriority"
+              :enabled-category-ids="enabledCategoryIds"
+              :risk-preferences-enabled="riskPreferencesEnabled"
+              @show-in-text="emit('show-in-text', finding)"
+            />
+          </motion.div>
+        </motion.div>
 
         <p class="text-body-secondary small mb-0 mt-2">
           Automated prediction, labelled by category where applicable; not legal advice.
