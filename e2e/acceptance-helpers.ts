@@ -87,7 +87,7 @@ export async function mockAcceptanceApi(page: Page, options: { failLatest?: bool
 
 export async function openApp(page: Page, options: { failLatest?: boolean } = {}) {
   await mockAcceptanceApi(page, options)
-  await page.goto('/')
+  await page.goto('/app')
   await expect(page.getByRole('heading', { name: "Read what you're agreeing to" })).toBeVisible()
 }
 

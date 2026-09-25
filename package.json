@@ -25,7 +25,9 @@
     "@aws-sdk/client-s3": "^3.1131.0",
     "@huggingface/transformers": "^4.2.0",
     "html-to-text": "^10.0.1",
+    "motion-v": "^2.4.4",
     "vue": "^3.5.40",
+    "vue-router": "^4.6.4",
     "vuedraggable": "^4.1.0"
   },
   "devDependencies": {
