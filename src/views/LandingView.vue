@@ -7,9 +7,12 @@
  */
 
 import { ref } from 'vue'
+import { motion } from 'motion-v'
 import logoUrl from '@/assets/BYA_logo.png'
 import ClauseCard from '@/components/ClauseCard.vue'
 import type { RiskFinding } from '@/types'
+
+const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 }
 
 const HIGHLIGHT_CATEGORIES = [
   {
@@ -115,11 +118,14 @@ function toggleTheme() {
         <span class="brand-wordmark">Before You Agree</span>
       </RouterLink>
       <div class="ms-auto d-flex align-items-center gap-2">
-        <button type="button" class="btn btn-sm btn-outline-secondary"
+        <motion.button type="button" class="btn btn-sm btn-outline-secondary"
+          :while-hover="{ scale: 1.08, rotate: 12 }" :while-press="{ scale: 0.9 }" :transition="BUTTON_SPRING"
           :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'" @click="toggleTheme">
           <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
-        </button>
-        <RouterLink to="/app" class="btn btn-sm btn-primary">Open the app</RouterLink>
+        </motion.button>
+        <motion.button as-child :while-hover="{ scale: 1.05 }" :while-press="{ scale: 0.95 }" :transition="BUTTON_SPRING">
+          <RouterLink to="/app" class="btn btn-sm btn-primary">Open the app</RouterLink>
+        </motion.button>
       </div>
     </div>
   </header>
@@ -143,10 +149,16 @@ function toggleTheme() {
             Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
           </p>
           <div class="d-flex flex-wrap gap-2">
-            <RouterLink to="/app" class="btn btn-primary btn-lg">
-              Analyse a service <i class="bi bi-arrow-right ms-1"></i>
-            </RouterLink>
-            <a href="#how-it-works" class="btn btn-outline-secondary btn-lg">See how it works</a>
+            <motion.button as-child :while-hover="{ scale: 1.04, y: -2 }" :while-press="{ scale: 0.97, y: 0 }"
+              :transition="BUTTON_SPRING">
+              <RouterLink to="/app" class="btn btn-primary btn-lg">
+                Analyse a service <i class="bi bi-arrow-right ms-1"></i>
+              </RouterLink>
+            </motion.button>
+            <motion.a href="#how-it-works" class="btn btn-outline-secondary btn-lg"
+              :while-hover="{ scale: 1.04, y: -2 }" :while-press="{ scale: 0.97, y: 0 }" :transition="BUTTON_SPRING">
+              See how it works
+            </motion.a>
           </div>
           <p class="small text-body-secondary mt-4 mb-0">
             An automated prediction to help you focus your reading, not legal advice.
@@ -225,9 +237,12 @@ function toggleTheme() {
           Search any service and get a plain-language breakdown in seconds.
         </p>
         <div>
-          <RouterLink to="/app" class="btn btn-primary btn-lg">
-            Analyse a service <i class="bi bi-arrow-right ms-1"></i>
-          </RouterLink>
+          <motion.button as-child :while-hover="{ scale: 1.04, y: -2 }" :while-press="{ scale: 0.97, y: 0 }"
+            :transition="BUTTON_SPRING">
+            <RouterLink to="/app" class="btn btn-primary btn-lg">
+              Analyse a service <i class="bi bi-arrow-right ms-1"></i>
+            </RouterLink>
+          </motion.button>
         </div>
       </div>
     </section>

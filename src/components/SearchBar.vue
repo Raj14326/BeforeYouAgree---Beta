@@ -7,6 +7,7 @@
  * parent only when a service should be loaded, via the `select` emit.
  */
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { AnimatePresence, motion } from 'motion-v'
 import { apiUrl } from '@/lib/api'
 import type { Service } from '@/types'
 import BrandAvatar from './BrandAvatar.vue'
@@ -21,6 +22,8 @@ const { services, isCatalogueLoading, isServiceLoading, catalogueIsFallback } = 
 const emit = defineEmits<{
   select: [service: Service]
 }>()
+
+const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
 
 const query = ref('')
 const isOpen = ref(false)
@@ -186,35 +189,45 @@ function selectService(service: Service) {
             @keydown="handleKeydown"
           />
         </div>
-        <div
-          v-if="isOpen && suggestions.length"
-          class="autocomplete-popup mt-1 shadow"
-        >
-          <ul class="list-group autocomplete-options">
-            <li
-              v-for="(service, index) in suggestions"
-              :key="service.path"
-              class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-              :class="{ active: index === activeIndex }"
-              style="cursor: pointer"
-              @mousedown.prevent="selectService(service)"
-            >
-              <BrandAvatar :service-name="service.name" />
-              <span class="flex-grow-1">{{ service.name }}</span>
-              <i class="bi bi-chevron-right small text-body-secondary"></i>
-            </li>
-          </ul>
-        </div>
+        <AnimatePresence>
+          <motion.div
+            v-if="isOpen && suggestions.length"
+            class="autocomplete-popup mt-1 shadow"
+            :initial="{ opacity: 0, scale: 0.98, y: -8 }"
+            :animate="{ opacity: 1, scale: 1, y: 0 }"
+            :exit="{ opacity: 0, scale: 0.98, y: -8 }"
+            :transition="{ duration: 0.15, ease: 'easeOut' }"
+            style="transform-origin: top"
+          >
+            <ul class="list-group autocomplete-options">
+              <li
+                v-for="(service, index) in suggestions"
+                :key="service.path"
+                class="list-group-item list-group-item-action d-flex align-items-center gap-2"
+                :class="{ active: index === activeIndex }"
+                style="cursor: pointer"
+                @mousedown.prevent="selectService(service)"
+              >
+                <BrandAvatar :service-name="service.name" />
+                <span class="flex-grow-1">{{ service.name }}</span>
+                <i class="bi bi-chevron-right small text-body-secondary"></i>
+              </li>
+            </ul>
+          </motion.div>
+        </AnimatePresence>
       </div>
       <div class="col-auto">
-        <button
+        <motion.button
           type="submit"
           class="btn btn-primary btn-lg"
           :disabled="isCatalogueLoading || isServiceLoading"
+          :while-hover="{ scale: 1.04, y: -2 }"
+          :while-press="{ scale: 0.97, y: 0 }"
+          :transition="BUTTON_SPRING"
         >
           <span v-if="isServiceLoading" class="spinner-border spinner-border-sm me-1"></span>
           {{ isServiceLoading ? 'Retrieving…' : 'Review terms' }}
-        </button>
+        </motion.button>
       </div>
     </div>
 
