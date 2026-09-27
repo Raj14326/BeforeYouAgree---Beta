@@ -45,13 +45,16 @@ const pieSlices = computed(() => buildCategoryPieSlices(scorecardRows.value))
 const pieViewBoxSize = PIE_RADIUS * 2 + 16 // stroke width (16) needs half its width as margin on each side
 const pieCenter = pieViewBoxSize / 2
 
+/** Share of total tagged occurrences each detected category accounts for — same figures as the pie slices. */
+const percentageByCategoryId = computed(() => new Map(pieSlices.value.map((slice) => [slice.id, slice.percentage])))
+
 // Same "what does this mean" bubble as RiskPreferenceSidebar, but instant
 // (delayMs 0) rather than its half-second hover delay.
 const { activeInfo, scheduleInfo, scheduleInfoAtPointer, closeInfo } = useHoverTooltip()
 </script>
 
 <template>
-  <div class="privacy-nutrition-card">
+  <div class="privacy-nutrition-card" v-bind="$attrs">
     <div class="row g-2 mb-2">
       <div class="col-sm-6">
         <div class="nutrition-tile h-100">
@@ -109,9 +112,14 @@ const { activeInfo, scheduleInfo, scheduleInfoAtPointer, closeInfo } = useHoverT
                 {{ category.name }}
               </td>
               <td class="text-end">
-                <span v-if="category.detected" class="badge rounded-pill text-bg-danger">
-                  <i class="bi bi-check-lg" aria-hidden="true"></i>
-                  <span class="visually-hidden">Detected</span>
+                <span v-if="category.detected" class="d-inline-flex align-items-center gap-2">
+                  <span class="small text-body-secondary">
+                    {{ category.occurrences }} ({{ percentageByCategoryId.get(category.id) }}%)
+                  </span>
+                  <span class="badge rounded-pill text-bg-danger">
+                    <i class="bi bi-check-lg" aria-hidden="true"></i>
+                    <span class="visually-hidden">Detected</span>
+                  </span>
                 </span>
                 <span v-else class="text-body-tertiary" aria-label="Not detected">—</span>
               </td>

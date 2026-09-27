@@ -110,7 +110,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="card shadow-sm risk-preference-sidebar">
+  <aside class="card shadow-sm risk-preference-sidebar" v-bind="$attrs">
     <details
       class="risk-preference-details"
       :open="open"
