@@ -80,11 +80,11 @@ const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
 /** Which risk categories currently pass the sidebar filter; starts with every category enabled. */
 const enabledCategoryIds = ref<Set<string>>(new Set(ALL_CATEGORY_IDS))
 /** Whether category filtering, ordering and preference bonuses are currently applied. */
-const riskPreferencesEnabled = ref(true)
+const riskPreferencesEnabled = ref(false)
 /** Category order chosen in the sidebar; earlier categories sort their matching clauses first. */
 const categoryPriority = ref<string[]>([...ALL_CATEGORY_IDS])
 const analysisErrors = ref<Record<string, string>>({})
-/** The document type whose clauses/original text are shown in chunks 3–4. */
+/** The single document card currently expanded to show its analysis. */
 const activeTerm = ref<string | null>(null)
 const originalDocOpen = ref(false)
 const theme = ref<'light' | 'dark'>(
@@ -108,20 +108,17 @@ const termEntries = computed(
   () => Object.entries(selectedService.value?.terms ?? {}) as Array<[string, Term]>,
 )
 
-const activeAnalysis = computed(() => (activeTerm.value ? analyses.value[activeTerm.value] : undefined))
-
-const activeFilter = computed<RiskFinding['predictedLabel']>(
-  () => (activeTerm.value && findingFilters.value[activeTerm.value]) || 'risky',
-)
-
-const activeDocumentHtml = computed(() => {
-  if (!activeTerm.value) return ''
+function documentHtml(termType: string) {
   return buildDocumentViewHtml(
-    retrievals.value[activeTerm.value]?.content ?? '',
-    analyses.value[activeTerm.value],
-    activeTerm.value,
+    retrievals.value[termType]?.content ?? '',
+    analyses.value[termType],
+    termType,
   )
-})
+}
+
+function originalDocumentId(termType: string) {
+  return `original-document-view-${termType.replace(/[^a-z0-9_-]/gi, '-')}`
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -283,18 +280,28 @@ function activateAndLoad(termType: string) {
   const term = selectedService.value?.terms[termType]
   if (!term?.available) return
 
-  if (activeTerm.value !== termType) {
-    activeTerm.value = termType
+  if (activeTerm.value === termType) {
+    activeTerm.value = null
     originalDocOpen.value = false
+    return
   }
+
+  activeTerm.value = termType
+  originalDocOpen.value = false
 
   if (!retrievals.value[termType] && !retrievingTerm.value[termType] && !analysingTerm.value[termType]) {
     void autoLoadAndAnalyse(termType)
   }
 }
 
-function setActiveFilter(label: RiskFinding['predictedLabel']) {
-  if (activeTerm.value) findingFilters.value[activeTerm.value] = label
+/** Activate a document and open/close its full text from the document card. */
+function toggleFullDocument(termType: string) {
+  if (activeTerm.value !== termType) {
+    activeTerm.value = termType
+    originalDocOpen.value = true
+    return
+  }
+  originalDocOpen.value = !originalDocOpen.value
 }
 
 /**
@@ -429,8 +436,9 @@ async function retrieveSelectedVersion(termType: string) {
             :term-type="termType"
             :term="term"
             :retrieval="retrievals[termType]"
-            :analysis="analyses[termType]"
+            :has-analysis="Boolean(analyses[termType])"
             :is-active="activeTerm === termType"
+            :full-document-open="activeTerm === termType && originalDocOpen"
             :is-loading="isInitialLoading(termType)"
             :is-analysing="Boolean(analysingTerm[termType])"
             :retrieval-error="retrievalErrors[termType] || ''"
@@ -440,30 +448,30 @@ async function retrieveSelectedVersion(termType: string) {
             :selected-version="selectedVersions[termType] || ''"
             :loading-history="loadingHistoryTerm === termType"
             @activate="activateAndLoad(termType)"
-            @analyse-again="analyseTerm(termType)"
+            @toggle-full-document="toggleFullDocument(termType)"
             @toggle-history="toggleHistory(termType)"
             @update:selected-version="selectedVersions[termType] = $event"
             @retrieve-version="retrieveSelectedVersion(termType)"
-          />
+          >
+            <ClausesPanel
+              :key="termType"
+              :analysis="analyses[termType] ?? null"
+              :filter="findingFilters[termType] || 'risky'"
+              :enabled-category-ids="enabledCategoryIds"
+              :category-priority="categoryPriority"
+              :risk-preferences-enabled="riskPreferencesEnabled"
+              @update:filter="findingFilters[termType] = $event"
+              @show-in-text="showInText"
+            />
+
+            <OriginalDocumentPanel
+              :html="documentHtml(termType)"
+              :open="activeTerm === termType && originalDocOpen"
+              :panel-id="originalDocumentId(termType)"
+              :has-risky-findings="Boolean(analyses[termType]?.riskyClauseCount)"
+            />
+          </ServiceDocumentCard>
         </section>
-
-        <ClausesPanel
-          v-if="activeTerm"
-          :analysis="activeAnalysis ?? null"
-          :filter="activeFilter"
-          :enabled-category-ids="enabledCategoryIds"
-          :category-priority="categoryPriority"
-          :risk-preferences-enabled="riskPreferencesEnabled"
-          @update:filter="setActiveFilter"
-          @show-in-text="showInText"
-        />
-
-        <OriginalDocumentPanel
-          :html="activeDocumentHtml"
-          :open="originalDocOpen"
-          :has-risky-findings="Boolean(activeAnalysis?.riskyClauseCount)"
-          @toggle="originalDocOpen = !originalDocOpen"
-        />
       </div>
     </div>
   </main>
