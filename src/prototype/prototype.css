@@ -1,0 +1,6 @@
+/* Small touch-ups for the /prototype/* screens only — this file is only
+   imported from PrototypeLayout.vue, never from the shipped app. */
+
+.v-application a {
+  color: inherit;
+}
