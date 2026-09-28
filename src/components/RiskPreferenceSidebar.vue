@@ -11,6 +11,8 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import draggable from 'vuedraggable'
+import HoverTooltipBubble from '@/components/HoverTooltipBubble.vue'
+import { useHoverTooltip } from '@/composables/useHoverTooltip'
 import { categoryColor } from '@/lib/category-colors'
 import { PRIVACY_CATEGORIES, PRIVACY_GROUP, TOS_CATEGORIES } from '@/lib/risk-categories'
 
@@ -52,49 +54,8 @@ const advancedOpen = ref(false)
 
 // "What does this mean" bubble, opened after a half-second pointer hover or
 // immediately by click/keyboard activation. `key` identifies its trigger.
-type ActiveInfo = { key: string; name: string; description: string; top: number; left: number; placement: 'left' | 'right' }
-const activeInfo = ref<ActiveInfo | null>(null)
 const preferenceListEl = ref<HTMLElement | null>(null)
-let infoHoverTimer: ReturnType<typeof setTimeout> | undefined
-
-function showInfo(target: HTMLElement, key: string, name: string, description: string) {
-  const rect = target.getBoundingClientRect()
-  const bubbleWidth = 260
-  const fitsRight = rect.right + 12 + bubbleWidth <= window.innerWidth
-  activeInfo.value = {
-    key,
-    name,
-    description,
-    top: rect.top + rect.height / 2,
-    left: fitsRight ? rect.right + 12 : rect.left - 12,
-    placement: fitsRight ? 'right' : 'left',
-  }
-}
-
-function toggleInfo(event: MouseEvent, key: string, name: string, description: string) {
-  cancelInfoHover()
-  if (activeInfo.value?.key === key) {
-    activeInfo.value = null
-    return
-  }
-  showInfo(event.currentTarget as HTMLElement, key, name, description)
-}
-
-function scheduleInfo(event: MouseEvent, key: string, name: string, description: string) {
-  cancelInfoHover()
-  const target = event.currentTarget as HTMLElement
-  infoHoverTimer = window.setTimeout(() => showInfo(target, key, name, description), 500)
-}
-
-function cancelInfoHover() {
-  if (infoHoverTimer !== undefined) clearTimeout(infoHoverTimer)
-  infoHoverTimer = undefined
-}
-
-function closeInfo() {
-  cancelInfoHover()
-  activeInfo.value = null
-}
+const { activeInfo, scheduleInfo, toggleInfo, closeInfo } = useHoverTooltip(() => preferenceListEl.value)
 
 const privacyAllEnabled = computed(() => privacyCategories.value.every((category) => category.enabled))
 const privacySomeEnabled = computed(() => privacyCategories.value.some((category) => category.enabled))
@@ -142,21 +103,14 @@ function syncOpenToViewport(event: MediaQueryListEvent) {
 
 onMounted(() => {
   desktopQuery.addEventListener('change', syncOpenToViewport)
-  window.addEventListener('click', closeInfo)
-  window.addEventListener('resize', closeInfo)
-  preferenceListEl.value?.addEventListener('scroll', closeInfo, { passive: true })
 })
 onBeforeUnmount(() => {
-  cancelInfoHover()
   desktopQuery.removeEventListener('change', syncOpenToViewport)
-  window.removeEventListener('click', closeInfo)
-  window.removeEventListener('resize', closeInfo)
-  preferenceListEl.value?.removeEventListener('scroll', closeInfo)
 })
 </script>
 
 <template>
-  <aside class="card shadow-sm risk-preference-sidebar">
+  <aside class="card shadow-sm risk-preference-sidebar" v-bind="$attrs">
     <details
       class="risk-preference-details"
       :open="open"
@@ -328,25 +282,7 @@ onBeforeUnmount(() => {
     </details>
   </aside>
 
-  <Teleport to="body">
-    <Transition name="preference-tooltip">
-      <div
-        v-if="activeInfo"
-        class="preference-popover"
-        :class="`preference-popover--${activeInfo.placement}`"
-        :style="{ top: `${activeInfo.top}px`, left: `${activeInfo.left}px` }"
-        role="tooltip"
-        :aria-label="activeInfo.name"
-      >
-        <div class="preference-popover-bubble">
-          <div class="preference-popover-header">
-            <span class="preference-popover-title">{{ activeInfo.name }}</span>
-          </div>
-          <p class="preference-popover-body">{{ activeInfo.description }}</p>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <HoverTooltipBubble :info="activeInfo" />
 </template>
 
 <style scoped>
@@ -489,27 +425,6 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
 }
 
-.preference-popover {
-  position: fixed;
-  z-index: 1080;
-  width: 260px;
-  max-width: calc(100vw - 2rem);
-  transform: translateY(-50%);
-}
-
-.preference-popover--left {
-  transform: translate(-100%, -50%);
-}
-
-.preference-popover-bubble {
-  position: relative;
-  background-color: var(--bs-body-bg);
-  border: 1px solid var(--bs-border-color-translucent);
-  border-radius: 0.75rem;
-  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.2);
-  padding: 0.65rem 0.8rem;
-}
-
 .preference-fieldset {
   min-width: 0;
   margin: 0;
@@ -520,77 +435,5 @@ onBeforeUnmount(() => {
 
 .preference-fieldset--disabled {
   opacity: 0.5;
-}
-
-.preference-tooltip-enter-active,
-.preference-tooltip-leave-active {
-  transition: opacity 0.18s ease;
-}
-
-.preference-tooltip-enter-active .preference-popover-bubble,
-.preference-tooltip-leave-active .preference-popover-bubble {
-  transition: transform 0.18s ease;
-}
-
-.preference-tooltip-enter-from,
-.preference-tooltip-leave-to {
-  opacity: 0;
-}
-
-.preference-tooltip-enter-from .preference-popover-bubble,
-.preference-tooltip-leave-to .preference-popover-bubble {
-  transform: translateY(0.2rem) scale(0.97);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .preference-tooltip-enter-active,
-  .preference-tooltip-leave-active,
-  .preference-tooltip-enter-active .preference-popover-bubble,
-  .preference-tooltip-leave-active .preference-popover-bubble {
-    transition: none;
-  }
-}
-
-.preference-popover-bubble::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  width: 0.65rem;
-  height: 0.65rem;
-  background-color: var(--bs-body-bg);
-}
-
-.preference-popover--right .preference-popover-bubble::before {
-  left: -0.33rem;
-  border-bottom: 1px solid var(--bs-border-color-translucent);
-  border-left: 1px solid var(--bs-border-color-translucent);
-  transform: translateY(-50%) rotate(45deg);
-}
-
-.preference-popover--left .preference-popover-bubble::before {
-  right: -0.33rem;
-  border-top: 1px solid var(--bs-border-color-translucent);
-  border-right: 1px solid var(--bs-border-color-translucent);
-  transform: translateY(-50%) rotate(45deg);
-}
-
-.preference-popover-header {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
-  margin-bottom: 0.3rem;
-}
-
-.preference-popover-title {
-  flex-grow: 1;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.preference-popover-body {
-  margin: 0;
-  font-size: 0.8rem;
-  color: var(--bs-secondary-color);
-  line-height: 1.35;
 }
 </style>
