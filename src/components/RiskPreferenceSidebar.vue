@@ -2,9 +2,9 @@
 /**
  * RiskPreferenceSidebar.vue: chunk 5, to the left of every other section.
  *
- * Toggle cards for the risk categories a clause can be tagged with: the 8
- * ToS labels the model predicts, plus the 11 rule-based privacy labels
- * (server/privacy-rules.ts) collapsed into a single "Privacy" card with an
+ * Toggle cards for the risk categories a clause can be tagged with: the 8 ToS
+ * labels predicted by the model plus 11 rule-based privacy labels, collapsed
+ * into a single "Privacy" card with an
  * "Advanced" expander for the individual sub-categories. Toggling a card
  * feeds `enabledCategoryIds` back up to App.vue, which uses it to filter
  * the clause list in ClausesPanel.

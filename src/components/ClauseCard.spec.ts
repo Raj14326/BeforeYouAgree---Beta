@@ -67,4 +67,18 @@ describe('ClauseCard personalised score', () => {
     expect(wrapper.get('[aria-label^="Risk score"]').text()).toContain('56')
     expect(wrapper.get('.badge').text()).toBe('Medium risk')
   })
+
+  it('shows inherited list context separately from the original bullet', () => {
+    const wrapper = mount(ClauseCard, {
+      props: {
+        finding: { ...finding, context: 'Information we collect', text: '* Content you create' },
+        categoryPriority: ['unilateral_change'],
+        enabledCategoryIds: new Set(['unilateral_change']),
+        riskPreferencesEnabled: false,
+      },
+    })
+
+    expect(wrapper.get('.clause-card-context').text()).toContain('Information we collect')
+    expect(wrapper.get('.clause-card-text').text()).toBe('* Content you create')
+  })
 })

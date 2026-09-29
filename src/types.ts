@@ -23,6 +23,7 @@ export type Retrieval = {
   fetchDate: string | null
   characterCount: number
   content: string
+  contexts?: Array<{ start: number; end: number; text: string }>
   repository: string
   repositoryUrl: string
 }
@@ -30,6 +31,7 @@ export type CategoryFinding = { id: string; name: string; score: number }
 export type RiskLevel = 'low' | 'medium' | 'high'
 export type RiskFinding = {
   text: string
+  context?: string
   start: number
   end: number
   occurrenceCount: number

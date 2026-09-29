@@ -238,6 +238,7 @@ async function analyseTerm(termType: string) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: retrieval.content,
+        contexts: retrieval.contexts,
         serviceName: selectedService.value?.name,
         documentType: termType,
       }),

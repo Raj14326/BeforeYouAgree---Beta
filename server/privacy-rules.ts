@@ -4,6 +4,7 @@ type PrivacyRule = {
   id: string
   name: string
   patterns: RegExp[]
+  exclusions?: RegExp[]
 }
 
 const RULES: PrivacyRule[] = [
@@ -12,9 +13,17 @@ const RULES: PrivacyRule[] = [
     name: 'Broad data collection',
     patterns: [
       /we collect (?:information|data).*(?:apps?|browsers?|devices?|activity|content)/i,
-      /information we collect.*(?:search|watch|voice|audio|purchase|communicat|third-party|browsing)/i,
-      /collect (?:call|message) log information/i,
-      /unique identifiers.*(?:browser|application|device)/i,
+      /(?:collect|store|receive).*(?:emails?|photos?|videos?|documents?|comments?|content (?:you )?(?:create|upload|receive))/i,
+      /(?:collect|store).*(?:IP address|crash reports?|system activity|referrer URLs?)/i,
+      /collect (?:call(?: and message)?|message) logs? information/i,
+      /(?:collect|store|receive).*unique identifiers.*(?:browser|application|device)/i,
+      /(?:collect|store) information (?:using|through).*(?:cookies?|pixel tags?|local storage|server logs?)/i,
+      /(?:analy[sz]e|collect) data about (?:your )?(?:visits?|interactions?).*(?:sites?|ads?)/i,
+      /(?:collect|receive) information (?:about you )?from [^.]{0,60}partners/i,
+    ],
+    exclusions: [
+      /unique identifiers?.*(?:means|are used to|incorporated into|manufacturer)/i,
+      /unique identifiers?.*(?:authenticate|preferred language)/i,
     ],
   },
   {
@@ -42,6 +51,7 @@ const RULES: PrivacyRule[] = [
       /personalized ads.*(?:interests|activity|information)/i,
       /(?:interests|activity|information).*(?:personalized|customized) ads/i,
       /partners?.*collect information.*(?:advertising|measurement).*(?:cookies|technologies)/i,
+      /(?:display|show).*(?:name|photo|activity).*(?:in|next to).*\b(?:ads?|advertisements?)\b/i,
     ],
   },
   {
@@ -58,6 +68,8 @@ const RULES: PrivacyRule[] = [
     patterns: [
       /provide personal information to (?:our )?affiliates and other trusted/i,
       /partners?.*collect information from your browser or device/i,
+      /\b(?:we|Google)\s+(?:may\s+)?(?:share|disclose).*(?:information|data).*(?:publicly|with (?:our )?partners)/i,
+      /(?:collect|receive) information (?:about you )?from [^.]{0,60}partners/i,
     ],
   },
   {
@@ -75,6 +87,9 @@ const RULES: PrivacyRule[] = [
       /domain administrator.*(?:access|Google Account)/i,
       /(?:administrator|reseller).*(?:change your account password|suspend|terminate|restrict)/i,
       /restrict your ability to delete or edit.*privacy settings/i,
+      /access and retain information stored in your account/i,
+      /view statistics regarding your account/i,
+      /change your account password/i,
     ],
   },
   {
@@ -83,6 +98,7 @@ const RULES: PrivacyRule[] = [
     patterns: [
       /keep (?:this |some )?data until you delete/i,
       /retain (?:the )?(?:data|information).*(?:longer|business|legal|security|fraud|financial)/i,
+      /(?:data|information) we retain for longer periods.*(?:business|legal|security|fraud|financial)/i,
       /delays? between when you delete.*(?:active|backup|servers|copies)/i,
     ],
   },
@@ -106,9 +122,9 @@ const RULES: PrivacyRule[] = [
 
 /** Conservative, auditable privacy-policy signals that complement UNFAIR-ToS. */
 export function detectPrivacyRisks(text: string): CategoryFinding[] {
-  return RULES.filter((rule) => rule.patterns.some((pattern) => pattern.test(text))).map((rule) => ({
-    id: rule.id,
-    name: rule.name,
-    score: 1,
-  }))
+  return RULES.filter(
+    (rule) =>
+      !rule.exclusions?.some((pattern) => pattern.test(text)) &&
+      rule.patterns.some((pattern) => pattern.test(text)),
+  ).map((rule) => ({ id: rule.id, name: rule.name, score: 1 }))
 }

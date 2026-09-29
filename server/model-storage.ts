@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 const MODEL_DIR = resolve(
-  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-v2-balanced',
 )
 
 const MODEL_FILES = [
@@ -24,7 +24,7 @@ export async function ensureModelAvailable() {
   if (!missing.length) return
 
   const bucket = process.env.MODEL_S3_BUCKET
-  const prefix = (process.env.MODEL_S3_PREFIX || 'bya-legalbert-small-unfair-tos')
+  const prefix = (process.env.MODEL_S3_PREFIX || 'bya-legalbert-v2-balanced')
     .replace(/^\/+|\/+$/g, '')
   if (!bucket) {
     throw new Error(

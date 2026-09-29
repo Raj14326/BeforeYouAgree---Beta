@@ -30,9 +30,10 @@
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
-import { htmlToPlainText } from './html-to-plain-text.ts'
+import { htmlToStructuredText } from './html-to-plain-text.ts'
 import { analyzeWithBert } from './bert-model.ts'
 import { ensureModelAvailable } from './model-storage.ts'
+import type { DocumentContext } from './clauses.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -98,7 +99,7 @@ const server = http.createServer(async (request, response) => {
         status: 'ok',
         source: 'tosdr',
         upstream: TOSDR_API,
-        model: 'BYA LegalBERT Small eight-label classifier',
+        model: 'BYA LegalBERT v2 Balanced eight-label classifier',
       })
     }
     if (request.method === 'POST' && url.pathname === '/api/analyze') {
@@ -153,7 +154,19 @@ async function analyzeDocument(request: IncomingMessage, response: ServerRespons
   if (!content) return sendJson(response, 400, { error: 'Document content is required.' })
   if (content.length > 500_000)
     return sendJson(response, 413, { error: 'Document is too large to analyze.' })
-  return sendJson(response, 200, await analyzeWithBert(content))
+  const contexts = validContexts(body.contexts, content.length)
+  return sendJson(response, 200, await analyzeWithBert(content, contexts))
+}
+
+function validContexts(value: unknown, contentLength: number): DocumentContext[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 500).filter((item): item is DocumentContext => {
+    if (!item || typeof item !== 'object') return false
+    const context = item as Partial<DocumentContext>
+    return Number.isInteger(context.start) && Number.isInteger(context.end) &&
+      context.start! >= 0 && context.end! > context.start! && context.end! <= contentLength &&
+      typeof context.text === 'string' && context.text.trim().length > 0 && context.text.length <= 300
+  })
 }
 
 /**
@@ -376,7 +389,7 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
     throw clientError(404, 'Terms document not found for this service.')
   }
 
-  const content = htmlToPlainText(terms.text || '')
+  const { content, contexts } = htmlToStructuredText(terms.text || '')
 
   return sendJson(response, 200, {
     format: 'plain_text',
@@ -385,6 +398,7 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
     termsType: terms.name,
     fetchDate: terms.updated_at || null,
     content,
+    contexts,
     characterCount: content.length,
     sourceUrl: terms.url || null,
     repository: 'ToS;DR',

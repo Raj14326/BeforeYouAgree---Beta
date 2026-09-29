@@ -63,6 +63,9 @@ const emit = defineEmits<{
         </span>
       </div>
 
+      <p v-if="finding.context" class="clause-card-context mb-1">
+        <span class="visually-hidden">Context: </span>{{ finding.context }}
+      </p>
       <p class="clause-card-text mb-2">{{ finding.text }}</p>
 
       <div class="d-flex flex-wrap align-items-center gap-3">
@@ -124,6 +127,12 @@ const emit = defineEmits<{
 .clause-card-text {
   font-size: 0.9rem;
   line-height: 1.55;
+}
+
+.clause-card-context {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--bs-secondary-color);
 }
 
 .clause-category {

@@ -1,8 +1,8 @@
 /**
  * BERT clause category classifier: inference only.
  *
- * Fine-tuned LEGAL-BERT Small (LexGLUE UNFAIR-ToS, 8 unfairness
- * categories, multi-label). This module never trains; it loads the exported ONNX
+ * Fine-tuned BYA LEGAL-BERT v2 Balanced model (8 unfair ToS categories,
+ * multi-label). This module never trains; it loads the exported ONNX
  * checkpoint once, lazily, and scores clause text against it.
  *
  * Pipeline: raw document text → {@link segments} splits it into clauses →
@@ -19,16 +19,17 @@ import {
   type PreTrainedModel,
   type PreTrainedTokenizer,
 } from '@huggingface/transformers'
-import { splitClauses, type Clause } from './clauses.ts'
+import { splitClauses, type Clause, type DocumentContext } from './clauses.ts'
 import { detectPrivacyRisks } from './privacy-rules.ts'
 import { classifyRiskLevel, type RiskLevel } from './risk-level.ts'
+import { supplementalCategories, validCategories } from './category-validation.ts'
 
 /**
  * The ONNX weights are installed locally so inference does not wait for
  * a Hugging Face download. Override the directory with `BERT_MODEL_DIR`.
  */
 const MODEL_PATH = resolve(
-  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-v2-balanced',
 )
 env.allowRemoteModels = false
 
@@ -54,6 +55,7 @@ export type CategoryFinding = {
 /** One clause together with the model's category predictions for it. */
 export type RiskFinding = {
   text: string
+  context?: string
   start: number
   end: number
   occurrenceCount: number
@@ -94,7 +96,7 @@ function sigmoid(x: number) {
 }
 
 /**
- * Score one clause against all 8 categories.
+ * Score one clause against all 8 model categories.
  *
  * @returns Categories whose score reached their own tuned threshold, sorted by
  * descending score. Empty when no category fired (i.e. the clause isn't risky).
@@ -135,7 +137,7 @@ async function scoreClausesWithBert(texts: string[]) {
     : 1
   for (let start = 0; start < texts.length; start += batchSize) {
     const batch = texts.slice(start, start + batchSize)
-    const inputs = await tokenizer(batch, { truncation: true, padding: true, max_length: 128 })
+    const inputs = await tokenizer(batch, { truncation: true, padding: true, max_length: 256 })
     const output = await loaded(inputs)
     const values = Array.from(output.logits.data as Float32Array)
     for (let index = 0; index < batch.length; index++) {
@@ -152,14 +154,21 @@ function normalizedClause(text: string) {
 
 type ClauseGroup = { clause: Clause; occurrenceStarts: number[] }
 
+function classificationText(clause: Clause) {
+  return clause.context ? `${clause.context}: ${clause.text}` : clause.text
+}
+
 /** Merge source repetitions before inference while retaining their exact offsets. */
-function uniqueClauses(content: string) {
-  const sourceClauses = splitClauses(content).filter(
-    ({ text }) => text.length >= 20 && (text.match(/[a-z]/gi)?.length ?? 0) >= 10,
+function uniqueClauses(
+  content: string,
+  documentContexts: DocumentContext[] = [],
+) {
+  const sourceClauses = splitClauses(content, documentContexts).filter(
+    ({ text, skipAnalysis }) => !skipAnalysis && text.length >= 20 && (text.match(/[a-z]/gi)?.length ?? 0) >= 10,
   )
   const groups = new Map<string, ClauseGroup>()
   for (const clause of sourceClauses) {
-    const key = normalizedClause(clause.text)
+    const key = normalizedClause(classificationText(clause))
     const existing = groups.get(key)
     if (existing) existing.occurrenceStarts.push(clause.start)
     else groups.set(key, { clause, occurrenceStarts: [clause.start] })
@@ -169,28 +178,33 @@ function uniqueClauses(content: string) {
 
 /**
  * Analyse a whole document: split it into clauses and classify each one against
- * all 8 unfairness categories. A clause is `risky` when at least one category
+ * all model and privacy-rule categories. A clause is `risky` when at least one category
  * fired.
  */
-export async function analyzeWithBert(content: string) {
+export async function analyzeWithBert(
+  content: string,
+  documentContexts: DocumentContext[] = [],
+) {
   const config = riskConfig()
-  const { sourceClauseCount, groups } = uniqueClauses(content)
-  const modelScores = await scoreClausesWithBert(groups.map(({ clause }) => clause.text))
+  const { sourceClauseCount, groups } = uniqueClauses(content, documentContexts)
+  const modelScores = await scoreClausesWithBert(groups.map(({ clause }) => classificationText(clause)))
   const findings = groups.map(({ clause, occurrenceStarts }, index): RiskFinding => {
     const scores = modelScores[index]!
-    const privacyFindings = detectPrivacyRisks(clause.text)
+    const text = classificationText(clause)
+    const ruleFindings = [...detectPrivacyRisks(text), ...supplementalCategories(text)]
     const byId = new Map<string, CategoryFinding>()
-    for (const category of [...categoriesFromScores(scores, config), ...privacyFindings]) {
+    for (const category of validCategories([...categoriesFromScores(scores, config), ...ruleFindings], text)) {
       byId.set(category.id, category)
     }
     const categories = [...byId.values()]
 
     // Privacy rules are deterministic pattern matches with no tuned threshold
-    // of their own; a hit is at least as confident as a model score clearing
-    // its threshold, so it is scored as a threshold of 0.
+    // of their own; a hit is treated as confidently above its threshold.
     const riskThresholds = { ...config.thresholds }
     const riskScores = { ...scores }
-    for (const finding of privacyFindings) {
+    const validIds = new Set(categories.map(({ id }) => id))
+    for (const id of Object.keys(riskScores)) if (!validIds.has(id)) riskScores[id] = 0
+    for (const finding of ruleFindings.filter(({ id }) => validIds.has(id))) {
       riskScores[finding.id] = finding.score
       riskThresholds[finding.id] = 0
     }
@@ -201,6 +215,7 @@ export async function analyzeWithBert(content: string) {
 
     return {
       text: clause.text,
+      context: clause.context,
       start: clause.start,
       end: clause.end,
       occurrenceCount: occurrenceStarts.length,
