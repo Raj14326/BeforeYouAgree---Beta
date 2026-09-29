@@ -6,12 +6,11 @@
 // score/highlight shown is computed for real from lib/ functions.
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import MockDocumentResult from '@/prototype/components/MockDocumentResult.vue'
+import MockBrandAvatar from '@/prototype/components/MockBrandAvatar.vue'
+import AddToCompareButton from '@/prototype/components/AddToCompareButton.vue'
 import { DOCUMENT_CATALOGUE, findCatalogueDocument, type CatalogueDocument } from '@/prototype/fixtures/document-catalogue'
-import { useMockCompareList } from '@/prototype/composables/useMockCompareList'
 
 const { preloadEntryId } = defineProps<{ preloadEntryId?: string | null }>()
-
-const { add: addToCompare, remove: removeFromCompare, isAdded } = useMockCompareList()
 
 const query = ref('')
 const selectedServiceName = ref<string | null>(null)
@@ -54,18 +53,14 @@ function toggleHistory(doc: CatalogueDocument) {
   stateFor(doc).historyOpen = !stateFor(doc).historyOpen
 }
 
-function toggleCompare(doc: CatalogueDocument) {
-  if (isAdded(doc.id)) {
-    removeFromCompare(doc.id)
-    return
-  }
-  addToCompare({
+function toCompareEntry(doc: CatalogueDocument) {
+  return {
     id: doc.id,
     serviceName: doc.serviceName,
     documentLabel: doc.documentLabel,
     documentText: doc.documentText,
     analysis: doc.analysis,
-  })
+  }
 }
 
 const activeDoc = computed(() => (activeDocId.value ? findCatalogueDocument(activeDocId.value) : undefined))
@@ -88,7 +83,7 @@ watch(() => preloadEntryId, preload)
     <v-text-field
       v-model="query"
       label="Search for a service"
-      placeholder="Try “ExampleSocial”, “ExampleCloud”, “ExampleStream”…"
+      placeholder="Try “Service 1” or “Service 2”…"
       variant="outlined"
       prepend-inner-icon="mdi-magnify"
       clearable
@@ -115,79 +110,86 @@ watch(() => preloadEntryId, preload)
         :key="service.name"
         :title="service.name"
         @click="selectService(service.name)"
-      />
+      >
+        <template #prepend>
+          <MockBrandAvatar :service-name="service.name" :size="28" />
+        </template>
+      </v-list-item>
     </v-list>
 
     <template v-if="selectedService">
-      <div class="text-subtitle-1 font-weight-medium mb-3">{{ selectedService.name }}</div>
-      <v-row class="mb-6">
-        <v-col v-for="doc in selectedService.documents" :key="doc.id" cols="12" sm="6">
-          <v-card variant="outlined" rounded="lg" :class="{ 'border-primary': activeDocId === doc.id }">
-            <v-card-item>
-              <template #title>{{ doc.documentLabel }}</template>
-              <template #subtitle>
-                {{
-                  stateFor(doc).status === 'analyzed'
-                    ? 'Analyzed'
-                    : stateFor(doc).status === 'analyzing'
-                      ? 'Analyzing…'
-                      : 'Not analyzed yet'
-                }}
-              </template>
-            </v-card-item>
-            <v-card-text>
-              <div class="d-flex flex-wrap ga-2 mb-2">
-                <v-btn
-                  size="small"
-                  color="primary"
-                  variant="tonal"
-                  :loading="stateFor(doc).status === 'analyzing'"
-                  @click="analyze(doc)"
-                >
-                  {{ stateFor(doc).status === 'analyzed' ? 'Re-analyze' : 'Analyze' }}
-                </v-btn>
-                <v-btn
-                  v-if="stateFor(doc).status === 'analyzed'"
-                  size="small"
-                  variant="text"
-                  :disabled="activeDocId === doc.id"
-                  @click="activeDocId = doc.id"
-                >
-                  View analysis
-                </v-btn>
-                <v-btn size="small" variant="text" append-icon="mdi-chevron-down" @click="toggleHistory(doc)">
-                  History
-                </v-btn>
-                <v-btn
-                  size="small"
-                  variant="text"
-                  :icon="isAdded(doc.id) ? 'mdi-bookmark-check' : 'mdi-bookmark-plus-outline'"
-                  :color="isAdded(doc.id) ? 'primary' : undefined"
-                  :disabled="stateFor(doc).status !== 'analyzed'"
-                  class="ml-auto"
-                  :aria-label="isAdded(doc.id) ? 'Remove from compare' : 'Add to compare'"
-                  @click="toggleCompare(doc)"
-                />
-              </div>
+      <div class="d-flex align-center ga-2 mb-3">
+        <MockBrandAvatar :service-name="selectedService.name" :size="28" />
+        <span class="text-subtitle-1 font-weight-medium">{{ selectedService.name }}</span>
+      </div>
 
-              <div v-if="stateFor(doc).historyOpen" class="d-flex ga-2 align-center mt-2">
-                <v-select
-                  v-model="stateFor(doc).versionId"
-                  :items="doc.versions"
-                  item-title="label"
-                  item-value="id"
-                  label="Version"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  style="max-width: 220px"
-                />
-                <v-btn size="small" variant="tonal" @click="analyze(doc)">Retrieve</v-btn>
-              </div>
-            </v-card-text>
-          </v-card>
-        </v-col>
-      </v-row>
+      <v-card
+        v-for="doc in selectedService.documents"
+        :key="doc.id"
+        variant="outlined"
+        rounded="lg"
+        class="mb-3"
+        :class="{ 'border-primary': activeDocId === doc.id }"
+      >
+        <v-card-text class="d-flex flex-wrap align-center ga-3 py-3">
+          <MockBrandAvatar :service-name="doc.serviceName" :size="40" />
+
+          <div class="flex-grow-1" style="min-width: 160px">
+            <div class="text-subtitle-1 font-weight-medium">{{ doc.documentLabel }}</div>
+            <div class="text-caption text-medium-emphasis">
+              {{
+                stateFor(doc).status === 'analyzed'
+                  ? 'Analyzed'
+                  : stateFor(doc).status === 'analyzing'
+                    ? 'Analyzing…'
+                    : 'Not analyzed yet'
+              }}
+            </div>
+          </div>
+
+          <div class="d-flex flex-wrap align-center ga-2 ml-auto">
+            <v-btn size="small" variant="text" append-icon="mdi-chevron-down" @click="toggleHistory(doc)">
+              History
+            </v-btn>
+            <v-btn
+              v-if="stateFor(doc).status === 'idle'"
+              size="small"
+              color="primary"
+              variant="tonal"
+              :loading="stateFor(doc).status === 'analyzing'"
+              @click="analyze(doc)"
+            >
+              Analyze
+            </v-btn>
+            <v-btn
+              v-else-if="stateFor(doc).status === 'analyzed' && activeDocId !== doc.id"
+              size="small"
+              variant="text"
+              @click="activeDocId = doc.id"
+            >
+              View analysis
+            </v-btn>
+            <AddToCompareButton :entry="toCompareEntry(doc)" :disabled="stateFor(doc).status !== 'analyzed'" />
+          </div>
+        </v-card-text>
+
+        <v-expand-transition>
+          <div v-if="stateFor(doc).historyOpen" class="d-flex ga-2 align-center px-4 pb-4">
+            <v-select
+              v-model="stateFor(doc).versionId"
+              :items="doc.versions"
+              item-title="label"
+              item-value="id"
+              label="Version"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="max-width: 220px"
+            />
+            <v-btn size="small" variant="tonal" @click="analyze(doc)">Retrieve</v-btn>
+          </div>
+        </v-expand-transition>
+      </v-card>
     </template>
 
     <v-empty-state

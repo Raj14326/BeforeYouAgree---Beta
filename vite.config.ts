@@ -10,15 +10,18 @@ export default defineConfig({
   plugins: [
     vue(),
     vueDevTools(),
-    // Only src/prototype/** files use <v-*> tags, so autoImport only ever
-    // injects Vuetify's per-component SCSS into those SFCs' own chunks —
-    // it never touches the shipped Bootstrap-styled routes' bundle.
-    // Per-component tree-shaking (styles: 'sass') does NOT pull in
-    // Vuetify's shared reset/utility-class layer (that lives in a separate
-    // generic/utilities partial main.sass forwards but individual
-    // component partials don't) — PrototypeLayout.vue imports that layer
-    // once, explicitly, via src/prototype/vuetify-base.scss.
-    vuetify({ autoImport: true, styles: 'sass' }),
+    // Only src/prototype/** files use <v-*> tags, so autoImport (component
+    // JS registration only) never touches the shipped Bootstrap-styled
+    // routes' bundle. styles: 'none' + a manual `vuetify/dist/vuetify.css`
+    // import in PrototypeLayout.vue (full precompiled CSS, not tree-shaken)
+    // is deliberate, not the default: vite-plugin-vuetify's per-component
+    // sass tree-shaking (styles: 'sass') silently drops every component's
+    // hover/focus/active state-layer CSS (verified: zero "__overlay" rules
+    // in the compiled output vs. 122 in Vuetify's own precompiled bundle) —
+    // buttons/chips lost all contrast on hover as a result. The precompiled
+    // CSS is proven correct; the KB cost is accepted, same as the base
+    // reset/utility-class layer already being a full, non-tree-shaken pull.
+    vuetify({ autoImport: true, styles: 'none' }),
   ],
   resolve: {
     alias: {

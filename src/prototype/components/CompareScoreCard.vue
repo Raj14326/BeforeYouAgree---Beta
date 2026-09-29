@@ -7,6 +7,7 @@
 import { simpleSummaryPhrase } from '@/prototype/copy/risk-summary-copy'
 import { computeMockRisk } from '@/prototype/lib/mock-risk'
 import RiskScoreSummary from '@/prototype/components/RiskScoreSummary.vue'
+import MockBrandAvatar from '@/prototype/components/MockBrandAvatar.vue'
 import type { MockCompareEntry } from '@/prototype/composables/useMockCompareList'
 
 const { entry } = defineProps<{ entry: MockCompareEntry }>()
@@ -18,6 +19,9 @@ const summary = simpleSummaryPhrase(computeMockRisk(entry.analysis).level)
 <template>
   <v-card variant="elevated" elevation="2" rounded="lg">
     <v-card-item>
+      <template #prepend>
+        <MockBrandAvatar :service-name="entry.serviceName" :size="36" />
+      </template>
       <template #title>{{ entry.serviceName }}</template>
       <template #subtitle>{{ entry.documentLabel }}</template>
       <template #append>

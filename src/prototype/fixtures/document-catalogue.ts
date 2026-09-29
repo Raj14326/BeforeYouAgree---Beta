@@ -1,10 +1,11 @@
-// Static example "search catalogue" for the /prototype workflow mock:
-// services with documents, each with a full documentText (so the original
-// document panel + highlighting are real, not hand-faked) and a couple of
-// fake archived versions. Service names are fictional — this screen shows
-// made-up scores, not a real analysis. clauseCount/riskyClauseCount are
-// tuned (via the real documentRiskScore/personalised-risk-score formulas)
-// to land in the high/medium/low tiers named below.
+// Static example "search catalogue" for the /prototype workflow mock: 2
+// fictional services, each with a Terms of Service + a Privacy Policy, with
+// a full documentText (so the original document panel + highlighting are
+// real, not hand-faked) and a couple of fake archived versions. Names are
+// deliberately generic placeholders, not real companies — this screen shows
+// made-up scores. clauseCount/riskyClauseCount are tuned (via the real
+// documentRiskScore/personalised-risk-score formulas) to land in the
+// high/medium/low tiers named below.
 import { withOffsets } from './finding-helpers'
 import type { Analysis } from '@/types'
 
@@ -25,9 +26,9 @@ export type CatalogueService = {
   documents: CatalogueDocument[]
 }
 
-const exampleSocialTermsText = `Welcome to ExampleSocial. These Terms of Service govern your access to and use of our platform. By creating an account, you agree to be bound by these terms.
+const service1TermsText = `Welcome to Service 1. These Terms of Service govern your access to and use of our platform. By creating an account, you agree to be bound by these terms.
 
-Eligibility and accounts. You must be at least 13 years old to use ExampleSocial. You are responsible for maintaining the security of your account credentials. We may suspend or terminate your account at any time without notice.
+Eligibility and accounts. You must be at least 13 years old to use Service 1. You are responsible for maintaining the security of your account credentials. We may suspend or terminate your account at any time without notice.
 
 Content and conduct. You retain ownership of content you post, but grant us a broad license to use, display, and distribute it. By continuing to use the service you agree we may remove content at our discretion.
 
@@ -36,11 +37,11 @@ Disputes. Any dispute will be resolved exclusively under the laws of our home ju
 Changes to these terms. We may update these terms from time to time. Continued use of the service after changes take effect constitutes acceptance of the revised terms.`
 
 // Tier: high (documentRiskScore >= 75).
-const exampleSocialTerms: Analysis = {
+const service1Terms: Analysis = {
   model: 'mock-v1',
   clauseCount: 10,
   riskyClauseCount: 8,
-  findings: withOffsets(exampleSocialTermsText, [
+  findings: withOffsets(service1TermsText, [
     {
       text: 'We may suspend or terminate your account at any time without notice.',
       categories: [
@@ -65,7 +66,7 @@ const exampleSocialTerms: Analysis = {
   ]),
 }
 
-const exampleCloudPrivacyText = `ExampleCloud Privacy Policy. This policy explains what data we collect and how we use it across our products and services.
+const service1PrivacyText = `Service 1 Privacy Policy. This policy explains what data we collect and how we use it across our products and services.
 
 Data we collect. We collect device, location, and usage data and may share it with partners who help us operate and improve the service.
 
@@ -76,11 +77,11 @@ Data retention. We retain account data for a period after closure for legal and 
 Your choices. You can review, export, or delete much of your data from your account settings at any time.`
 
 // Tier: medium (45-74).
-const exampleCloudPrivacy: Analysis = {
+const service1Privacy: Analysis = {
   model: 'mock-v1',
   clauseCount: 12,
   riskyClauseCount: 6,
-  findings: withOffsets(exampleCloudPrivacyText, [
+  findings: withOffsets(service1PrivacyText, [
     {
       text: 'We collect device, location, and usage data and may share it with partners who help us operate and improve the service.',
       categories: [
@@ -99,7 +100,7 @@ const exampleCloudPrivacy: Analysis = {
   ]),
 }
 
-const exampleStreamTermsText = `ExampleStream Terms of Service. These terms cover your use of our streaming service and related apps.
+const service2TermsText = `Service 2 Terms of Service. These terms cover your use of our streaming service and related apps.
 
 Your subscription. Your subscription renews automatically each billing period unless cancelled before the renewal date.
 
@@ -110,14 +111,45 @@ Changes to these terms. We may update these terms from time to time; continued u
 Contact us. If you have questions about these terms, reach out to our support team any time.`
 
 // Tier: low (< 45).
-const exampleStreamTerms: Analysis = {
+const service2Terms: Analysis = {
   model: 'mock-v1',
   clauseCount: 15,
   riskyClauseCount: 2,
-  findings: withOffsets(exampleStreamTermsText, [
+  findings: withOffsets(service2TermsText, [
     {
       text: 'We may update these terms from time to time; continued use means acceptance.',
       categories: [{ id: 'unilateral_change', name: 'Unilateral change', score: 0.4 }],
+    },
+  ]),
+}
+
+const service2PrivacyText = `Service 2 Privacy Policy. This policy explains what data we collect and how we use it.
+
+Location. We use location data to show you nearby recommendations. You can disable this in your device settings.
+
+Cross-service activity. Your activity may be linked across our other apps and services to improve recommendations.
+
+Legal requests. We may disclose account information if required by law. We review each request carefully.
+
+Your rights. You can request a copy of your data or ask us to delete it at any time.`
+
+// Tier: medium (45-74).
+const service2Privacy: Analysis = {
+  model: 'mock-v1',
+  clauseCount: 13,
+  riskyClauseCount: 5,
+  findings: withOffsets(service2PrivacyText, [
+    {
+      text: 'We use location data to show you nearby recommendations.',
+      categories: [{ id: 'privacy_location_tracking', name: 'Location tracking', score: 0.85 }],
+    },
+    {
+      text: 'Your activity may be linked across our other apps and services to improve recommendations.',
+      categories: [{ id: 'privacy_cross_service_profiling', name: 'Cross-service profiling', score: 0.65 }],
+    },
+    {
+      text: 'We may disclose account information if required by law.',
+      categories: [{ id: 'privacy_government_disclosure', name: 'Government or legal disclosure', score: 0.6 }],
     },
   ]),
 }
@@ -129,44 +161,48 @@ const ARCHIVED_VERSIONS: DocumentVersion[] = [
 
 export const DOCUMENT_CATALOGUE: CatalogueService[] = [
   {
-    name: 'ExampleSocial',
+    name: 'Service 1',
     documents: [
       {
-        id: 'example-social-terms',
-        serviceName: 'ExampleSocial',
+        id: 'service-1-terms',
+        serviceName: 'Service 1',
         documentLabel: 'Terms of Service',
         termType: 'terms',
-        documentText: exampleSocialTermsText,
+        documentText: service1TermsText,
         versions: ARCHIVED_VERSIONS,
-        analysis: exampleSocialTerms,
+        analysis: service1Terms,
       },
-    ],
-  },
-  {
-    name: 'ExampleCloud',
-    documents: [
       {
-        id: 'example-cloud-privacy',
-        serviceName: 'ExampleCloud',
+        id: 'service-1-privacy',
+        serviceName: 'Service 1',
         documentLabel: 'Privacy Policy',
         termType: 'privacy',
-        documentText: exampleCloudPrivacyText,
+        documentText: service1PrivacyText,
         versions: ARCHIVED_VERSIONS,
-        analysis: exampleCloudPrivacy,
+        analysis: service1Privacy,
       },
     ],
   },
   {
-    name: 'ExampleStream',
+    name: 'Service 2',
     documents: [
       {
-        id: 'example-stream-terms',
-        serviceName: 'ExampleStream',
+        id: 'service-2-terms',
+        serviceName: 'Service 2',
         documentLabel: 'Terms of Service',
         termType: 'terms',
-        documentText: exampleStreamTermsText,
+        documentText: service2TermsText,
         versions: ARCHIVED_VERSIONS,
-        analysis: exampleStreamTerms,
+        analysis: service2Terms,
+      },
+      {
+        id: 'service-2-privacy',
+        serviceName: 'Service 2',
+        documentLabel: 'Privacy Policy',
+        termType: 'privacy',
+        documentText: service2PrivacyText,
+        versions: ARCHIVED_VERSIONS,
+        analysis: service2Privacy,
       },
     ],
   },

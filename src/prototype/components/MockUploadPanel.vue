@@ -5,6 +5,7 @@
 import { ref } from 'vue'
 import MockDocumentResult from '@/prototype/components/MockDocumentResult.vue'
 import AnalyzingSkeleton from '@/prototype/components/AnalyzingSkeleton.vue'
+import AddToCompareButton from '@/prototype/components/AddToCompareButton.vue'
 import { computeMockRisk } from '@/prototype/lib/mock-risk'
 import { RISK_LEVEL_LABELS } from '@/types'
 import { MOCK_MIN_PASTE_LENGTH, UPLOAD_RESULT_ANALYSIS, UPLOAD_RESULT_TEXT } from '@/prototype/fixtures/upload-fixtures'
@@ -17,6 +18,14 @@ const pastedText = ref('')
 const selectedFile = ref<File[]>([])
 const status = ref<Status>('idle')
 const liveMessage = ref('')
+
+const uploadCompareEntry = {
+  id: 'upload-result',
+  serviceName: 'Your document',
+  documentLabel: 'Pasted / uploaded text',
+  documentText: UPLOAD_RESULT_TEXT,
+  analysis: UPLOAD_RESULT_ANALYSIS,
+}
 
 function analyze() {
   status.value = 'analyzing'
@@ -50,7 +59,11 @@ function reset() {
   <div>
     <div aria-live="polite" class="visually-hidden">{{ liveMessage }}</div>
 
-    <v-card variant="elevated" elevation="2" rounded="lg">
+    <!-- Idle/analyzing/error stay inside a card, matching the search flow's
+         input surfaces; the result is a flat, top-level section instead —
+         the same presentation MockServiceSearch gives an analyzed document,
+         not nested a second card deep. -->
+    <v-card v-if="status !== 'result'" variant="elevated" elevation="2" rounded="lg">
       <v-card-text>
         <v-tabs v-model="mode" color="primary" class="mb-4" :disabled="status !== 'idle'">
           <v-tab value="paste">Paste text</v-tab>
@@ -99,19 +112,22 @@ function reset() {
           />
           <v-btn variant="tonal" color="primary" @click="reset">Try again</v-btn>
         </div>
-
-        <div v-else>
-          <div class="d-flex justify-space-between align-center mb-4">
-            <div class="text-subtitle-1 font-weight-medium">Your pasted document</div>
-            <v-btn variant="text" color="primary" @click="reset">Analyze another</v-btn>
-          </div>
-          <MockDocumentResult
-            :analysis="UPLOAD_RESULT_ANALYSIS"
-            :document-text="UPLOAD_RESULT_TEXT"
-            doc-key="upload-result"
-          />
-        </div>
       </v-card-text>
     </v-card>
+
+    <template v-else>
+      <div class="d-flex flex-wrap justify-space-between align-center ga-2 mb-4">
+        <div class="text-subtitle-1 font-weight-medium">Your pasted document</div>
+        <div class="d-flex ga-2">
+          <AddToCompareButton :entry="uploadCompareEntry" />
+          <v-btn variant="text" color="primary" @click="reset">Analyze another</v-btn>
+        </div>
+      </div>
+      <MockDocumentResult
+        :analysis="UPLOAD_RESULT_ANALYSIS"
+        :document-text="UPLOAD_RESULT_TEXT"
+        doc-key="upload-result"
+      />
+    </template>
   </div>
 </template>

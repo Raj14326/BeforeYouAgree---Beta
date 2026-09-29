@@ -2,17 +2,16 @@
 /**
  * Material-3-styled sibling of PrivacyNutritionCard.vue for the /prototype
  * screens. Deliberately not a reskin of that component — it drives the same
- * real scoring functions but adds two inclusive-design refinements the
- * shipped card doesn't have yet: a Simple/Detailed language toggle, and
- * progressive disclosure (top concerns first) instead of a flat category
- * list.
+ * real scoring functions but adds an inclusive-design refinement the
+ * shipped card doesn't have yet: progressive disclosure (top concerns
+ * first) instead of a flat category list. Summary/category copy always
+ * uses the plain-language phrasing (no detailed/legalese variant to toggle
+ * to) so the card stays scannable by default.
  */
 import { computed, ref } from 'vue'
-import { riskLevelPhrase } from '@/lib/risk-level'
 import { aggregateScorecardRows } from '@/lib/category-aggregation'
 import { categoryColor } from '@/lib/category-colors'
 import { simpleSummaryPhrase } from '@/prototype/copy/risk-summary-copy'
-import { detailedCategoryDescription } from '@/prototype/copy/category-detail-copy'
 import { computeMockRisk } from '@/prototype/lib/mock-risk'
 import RiskScoreSummary from '@/prototype/components/RiskScoreSummary.vue'
 import type { Analysis } from '@/types'
@@ -20,11 +19,7 @@ import type { Analysis } from '@/types'
 const { analysis } = defineProps<{ analysis: Analysis }>()
 
 const risk = computed(() => computeMockRisk(analysis))
-
-const copyMode = ref<'simple' | 'detailed'>('simple')
-const summary = computed(() =>
-  copyMode.value === 'simple' ? simpleSummaryPhrase(risk.value.level) : riskLevelPhrase(risk.value.score),
-)
+const summary = computed(() => simpleSummaryPhrase(risk.value.level))
 
 const scorecardRows = computed(() => aggregateScorecardRows(analysis))
 const detectedRows = computed(() =>
@@ -38,28 +33,12 @@ const visibleRows = computed(() =>
   showAll.value ? [...detectedRows.value, ...notDetectedRows.value] : detectedRows.value.slice(0, TOP_COUNT),
 )
 const hiddenCount = computed(() => scorecardRows.value.length - visibleRows.value.length)
-
-function descriptionFor(row: (typeof scorecardRows.value)[number]) {
-  return copyMode.value === 'simple' ? row.description : detailedCategoryDescription(row.id, row.description)
-}
 </script>
 
 <template>
   <v-card variant="elevated" elevation="2" rounded="lg" class="pa-1">
     <v-card-text>
       <RiskScoreSummary :analysis="analysis" :summary="summary" />
-
-      <v-btn-toggle
-        v-model="copyMode"
-        mandatory
-        density="comfortable"
-        color="primary"
-        class="mb-4"
-        aria-label="Language detail level"
-      >
-        <v-btn value="simple" size="small">Simple words</v-btn>
-        <v-btn value="detailed" size="small">Detailed</v-btn>
-      </v-btn-toggle>
 
       <div class="text-subtitle-2 mb-2">Risk categories</div>
       <v-list density="compact" class="bg-transparent pa-0">
@@ -72,7 +51,7 @@ function descriptionFor(row: (typeof scorecardRows.value)[number]) {
             />
           </template>
           <v-list-item-title>{{ row.name }}</v-list-item-title>
-          <v-list-item-subtitle>{{ descriptionFor(row) }}</v-list-item-subtitle>
+          <v-list-item-subtitle>{{ row.description }}</v-list-item-subtitle>
           <template #append>
             <v-chip v-if="row.detected" size="small" color="error" variant="tonal" prepend-icon="mdi-check-circle">
               {{ row.occurrences }}

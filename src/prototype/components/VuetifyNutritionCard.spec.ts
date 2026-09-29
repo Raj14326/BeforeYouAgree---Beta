@@ -4,9 +4,9 @@ import VuetifyNutritionCard from './VuetifyNutritionCard.vue'
 import { vuetify } from '@/prototype/plugins/vuetify'
 import { findCatalogueDocument } from '@/prototype/fixtures/document-catalogue'
 
-// ExampleSocial's fixture has 6 detected categories (out of 9 scorecard
+// Service 1's ToS fixture has 6 detected categories (out of 9 scorecard
 // rows) — more than the top-3 default, so it exercises the expand toggle.
-const analysis = findCatalogueDocument('example-social-terms')!.analysis
+const analysis = findCatalogueDocument('service-1-terms')!.analysis
 
 function mountCard() {
   return mount(VuetifyNutritionCard, {
