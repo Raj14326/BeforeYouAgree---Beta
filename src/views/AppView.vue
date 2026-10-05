@@ -23,6 +23,7 @@ import { motion } from 'motion-v'
 import logoUrl from '@/assets/BYA_logo.png'
 import QuickGuide from '@/components/QuickGuide.vue'
 import SearchBar from '@/components/SearchBar.vue'
+import DocumentUploadPanel from '@/components/DocumentUploadPanel.vue'
 import ServiceDocumentCard from '@/components/ServiceDocumentCard.vue'
 import ClausesPanel from '@/components/ClausesPanel.vue'
 import OriginalDocumentPanel from '@/components/OriginalDocumentPanel.vue'
@@ -96,8 +97,12 @@ const selectedVersions = ref<Record<string, string>>({})
 const loadingHistoryTerm = ref<string | null>(null)
 const error = ref('')
 const resultsSection = ref<HTMLElement | null>(null)
+/** Whether the search card or the upload-your-own card is shown. */
+const searchMode = ref<'catalogue' | 'upload'>('catalogue')
 
 const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
+/** Single term key used for an uploaded/pasted document (it has no other term types). */
+const UPLOAD_TERM_TYPE = 'document'
 
 // ---------------------------------------------------------------------------
 // Computed
@@ -190,6 +195,60 @@ async function selectService(service: Service) {
     error.value = `We could not retrieve ${service.name} from ToS;DR right now.`
     isServiceLoading.value = false
   }
+}
+
+/**
+ * Handle a user-supplied document (pasted or extracted from an uploaded
+ * file, see DocumentUploadPanel). Builds a synthetic single-term
+ * declaration whose content is already in hand — skipping `retrieveTerm` —
+ * then runs it through the same `analyseTerm` as a catalogue document.
+ */
+async function handleUpload({ name, content }: { name: string; content: string }) {
+  selectedService.value = null
+  retrievals.value = {}
+  retrievalErrors.value = {}
+  analyses.value = {}
+  findingFilters.value = {}
+  analysisErrors.value = {}
+  retrievingTerm.value = {}
+  analysingTerm.value = {}
+  openHistoryTerm.value = null
+  versions.value = {}
+  selectedVersions.value = {}
+  activeTerm.value = null
+  originalDocOpen.value = false
+  error.value = ''
+
+  selectedService.value = {
+    name,
+    terms: {
+      [UPLOAD_TERM_TYPE]: {
+        sourceUrl: null,
+        available: true,
+        latestUrl: null,
+        updatedAt: null,
+        historyAvailable: false,
+        historyUrl: null,
+      },
+    },
+  }
+  retrievals.value[UPLOAD_TERM_TYPE] = {
+    format: 'plain_text',
+    id: 'uploaded',
+    serviceId: 'uploaded',
+    termType: UPLOAD_TERM_TYPE,
+    sourceUrl: null,
+    fetchDate: new Date().toISOString(),
+    characterCount: content.length,
+    content,
+    repository: '',
+    repositoryUrl: '',
+  }
+  activeTerm.value = UPLOAD_TERM_TYPE
+
+  await nextTick()
+  resultsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  await analyseTerm(UPLOAD_TERM_TYPE)
 }
 
 /**
@@ -419,13 +478,34 @@ async function retrieveSelectedVersion(termType: string) {
       />
 
       <div class="main-column">
+        <div class="btn-group mb-3" role="group" aria-label="Choose how to find a document">
+          <button
+            type="button"
+            class="btn"
+            :class="searchMode === 'catalogue' ? 'btn-primary' : 'btn-outline-secondary'"
+            @click="searchMode = 'catalogue'"
+          >
+            Search a service
+          </button>
+          <button
+            type="button"
+            class="btn"
+            :class="searchMode === 'upload' ? 'btn-primary' : 'btn-outline-secondary'"
+            @click="searchMode = 'upload'"
+          >
+            Upload your own
+          </button>
+        </div>
+
         <SearchBar
+          v-if="searchMode === 'catalogue'"
           :services="services"
           :is-catalogue-loading="isCatalogueLoading"
           :is-service-loading="isServiceLoading"
           :catalogue-is-fallback="catalogueIsFallback"
           @select="selectService"
         />
+        <DocumentUploadPanel v-else @submit="handleUpload" />
 
         <div v-if="error" class="alert alert-warning" role="alert">{{ error }}</div>
 
