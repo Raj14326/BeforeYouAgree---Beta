@@ -9,6 +9,8 @@
  * transformers.js tokenizes and runs each clause through the ONNX model →
  * {@link scoreClauseWithBert} turns the raw logits into per-category scores and
  * compares each against its own tuned threshold from `risk_config.json`.
+ * trying some stuff out 
+ *
  */
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
