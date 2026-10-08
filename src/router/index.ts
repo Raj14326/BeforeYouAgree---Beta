@@ -13,6 +13,11 @@ const router = createRouter({
       name: 'app',
       component: () => import('@/views/AppView.vue'),
     },
+    {
+      path: '/compare',
+      name: 'compare',
+      component: () => import('@/views/CompareView.vue'),
+    },
   ],
   scrollBehavior() {
     return { top: 0 }

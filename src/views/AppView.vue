@@ -19,18 +19,19 @@
  */
 
 import { computed, nextTick, onMounted, ref } from 'vue'
-import { motion } from 'motion-v'
-import logoUrl from '@/assets/BYA_logo.png'
-import QuickGuide from '@/components/QuickGuide.vue'
+import { useRoute } from 'vue-router'
+import AppHeader from '@/components/AppHeader.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import DocumentUploadPanel from '@/components/DocumentUploadPanel.vue'
 import ServiceDocumentCard from '@/components/ServiceDocumentCard.vue'
 import ClausesPanel from '@/components/ClausesPanel.vue'
 import OriginalDocumentPanel from '@/components/OriginalDocumentPanel.vue'
 import RiskPreferenceSidebar from '@/components/RiskPreferenceSidebar.vue'
+import { pendingReopen, useCompareList } from '@/composables/useCompareList'
+import { useRiskPreferences } from '@/composables/useRiskPreferences'
 import { apiUrl } from '@/lib/api'
+import { fetchAnalysis, fetchRetrieval } from '@/lib/document-fetch'
 import { buildDocumentViewHtml, clauseId } from '@/lib/document-view'
-import { ALL_CATEGORY_IDS } from '@/lib/risk-categories'
 import type { Analysis, Declaration, Retrieval, RiskFinding, Service, Term, VersionOption } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -67,8 +68,14 @@ const FALLBACK_SERVICES: Service[] = [
 //    several documents can be retrieved and analysed independently at once.
 // ---------------------------------------------------------------------------
 
+const route = useRoute()
+const { enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = useRiskPreferences()
+const compareList = useCompareList()
+
 const services = ref<Service[]>([])
 const selectedService = ref<Declaration | null>(null)
+/** `Service.path` for the currently selected catalogue service; `selectedService` itself drops it after load. Needed to rebuild a CompareSourceRef. */
+const currentServicePath = ref<string | null>(null)
 const isCatalogueLoading = ref(true)
 const isServiceLoading = ref(false)
 const catalogueIsFallback = ref(false)
@@ -78,12 +85,6 @@ const retrievals = ref<Record<string, Retrieval>>({})
 const retrievalErrors = ref<Record<string, string>>({})
 const analyses = ref<Record<string, Analysis>>({})
 const findingFilters = ref<Record<string, RiskFinding['predictedLabel']>>({})
-/** Which risk categories currently pass the sidebar filter; starts with every category enabled. */
-const enabledCategoryIds = ref<Set<string>>(new Set(ALL_CATEGORY_IDS))
-/** Whether category filtering, ordering and preference bonuses are currently applied. */
-const riskPreferencesEnabled = ref(false)
-/** Category order chosen in the sidebar; earlier categories sort their matching clauses first. */
-const categoryPriority = ref<string[]>([...ALL_CATEGORY_IDS])
 const analysisErrors = ref<Record<string, string>>({})
 /** The single document card currently expanded to show its analysis. */
 const activeTerm = ref<string | null>(null)
@@ -94,13 +95,25 @@ const theme = ref<'light' | 'dark'>(
 const openHistoryTerm = ref<string | null>(null)
 const versions = ref<Record<string, VersionOption[]>>({})
 const selectedVersions = ref<Record<string, string>>({})
+/** `null` = latest; a URL = which archived version is currently loaded for that term. Set by autoLoadAndAnalyse. */
+const loadedVersionUrl = ref<Record<string, string | null>>({})
+/**
+ * Which "Add to compare" buttons have already been clicked for their
+ * current content, for button feedback. This is separate from
+ * compareList's own dedup (which only has a stable identity for catalogue
+ * documents) so an upload — which the store always lets through as a new
+ * entry — still gets "Added to compare" feedback instead of silently doing
+ * nothing on repeat clicks.
+ */
+const addedTermTypes = ref<Set<string>>(new Set())
+/** Same idea as {@link addedTermTypes}, keyed by `${termType}:${versionUrl}` for the History popover's own button. */
+const addedVersionKeys = ref<Set<string>>(new Set())
 const loadingHistoryTerm = ref<string | null>(null)
 const error = ref('')
 const resultsSection = ref<HTMLElement | null>(null)
 /** Whether the search card or the upload-your-own card is shown. */
 const searchMode = ref<'catalogue' | 'upload'>('catalogue')
 
-const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
 /** Single term key used for an uploaded/pasted document (it has no other term types). */
 const UPLOAD_TERM_TYPE = 'document'
 
@@ -129,7 +142,10 @@ function originalDocumentId(termType: string) {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-onMounted(loadCatalogue)
+onMounted(async () => {
+  await loadCatalogue()
+  await hydrateFromCompareReopen()
+})
 
 // ---------------------------------------------------------------------------
 // API calls
@@ -160,6 +176,7 @@ async function loadCatalogue() {
 async function selectService(service: Service) {
   isServiceLoading.value = true
   selectedService.value = null
+  currentServicePath.value = service.path
   retrievals.value = {}
   retrievalErrors.value = {}
   analyses.value = {}
@@ -170,6 +187,9 @@ async function selectService(service: Service) {
   openHistoryTerm.value = null
   versions.value = {}
   selectedVersions.value = {}
+  loadedVersionUrl.value = {}
+  addedTermTypes.value = new Set()
+  addedVersionKeys.value = new Set()
   activeTerm.value = null
   originalDocOpen.value = false
   error.value = ''
@@ -205,6 +225,7 @@ async function selectService(service: Service) {
  */
 async function handleUpload({ name, content }: { name: string; content: string }) {
   selectedService.value = null
+  currentServicePath.value = null
   retrievals.value = {}
   retrievalErrors.value = {}
   analyses.value = {}
@@ -215,6 +236,9 @@ async function handleUpload({ name, content }: { name: string; content: string }
   openHistoryTerm.value = null
   versions.value = {}
   selectedVersions.value = {}
+  loadedVersionUrl.value = {}
+  addedTermTypes.value = new Set()
+  addedVersionKeys.value = new Set()
   activeTerm.value = null
   originalDocOpen.value = false
   error.value = ''
@@ -263,10 +287,7 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
   try {
     const term = selectedService.value.terms[termType]
     if (!term?.latestUrl) throw new Error('No archived version is available for this document.')
-    const response = await fetch(apiUrl(versionUrl || term.latestUrl))
-    const payload = (await response.json()) as Retrieval | { error: string }
-    if (!response.ok) throw new Error('error' in payload ? payload.error : 'Retrieval failed')
-    retrievals.value[termType] = payload as Retrieval
+    retrievals.value[termType] = await fetchRetrieval(versionUrl || term.latestUrl)
     delete analyses.value[termType]
     delete findingFilters.value[termType]
     analysisErrors.value[termType] = ''
@@ -289,20 +310,12 @@ async function analyseTerm(termType: string) {
   analysingTerm.value[termType] = true
   analysisErrors.value[termType] = ''
   try {
-    const response = await fetch(apiUrl('/api/analyze'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: retrieval.content,
-        contexts: retrieval.contexts,
-        serviceName: selectedService.value?.name,
-        documentType: termType,
-      }),
-    })
-    const payload = (await response.json()) as Analysis | { error?: string }
-    if (!response.ok)
-      throw new Error('error' in payload && payload.error ? payload.error : 'Analysis failed.')
-    analyses.value[termType] = payload as Analysis
+    analyses.value[termType] = await fetchAnalysis(
+      retrieval.content,
+      retrieval.contexts,
+      selectedService.value?.name,
+      termType,
+    )
     findingFilters.value[termType] = 'risky'
   } catch (cause) {
     analysisErrors.value[termType] =
@@ -315,6 +328,8 @@ async function analyseTerm(termType: string) {
 /** Retrieve a document (optionally a specific archived version) then immediately analyse it. */
 async function autoLoadAndAnalyse(termType: string, versionUrl?: string) {
   await retrieveTerm(termType, versionUrl)
+  loadedVersionUrl.value[termType] = versionUrl ?? null
+  addedTermTypes.value.delete(termType)
   if (retrievals.value[termType]) await analyseTerm(termType)
 }
 
@@ -430,37 +445,138 @@ async function retrieveSelectedVersion(termType: string) {
   openHistoryTerm.value = null
   await autoLoadAndAnalyse(termType, versionUrl)
 }
+
+// ---------------------------------------------------------------------------
+// Compare
+// ---------------------------------------------------------------------------
+
+function compareDisplayName(termType: string, versionLabel?: string | null) {
+  const typeLabel = termType === UPLOAD_TERM_TYPE ? 'Uploaded document' : termType.replace(/_/g, ' ')
+  const capitalised = typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)
+  return versionLabel ? `${capitalised} (${versionLabel})` : capitalised
+}
+
+function catalogueSourceRef(termType: string, versionUrl?: string) {
+  if (!currentServicePath.value || !selectedService.value) return null
+  return {
+    kind: 'catalogue' as const,
+    servicePath: currentServicePath.value,
+    serviceName: selectedService.value.name,
+    termType,
+    versionUrl,
+  }
+}
+
+/** Add whatever's currently loaded for this card — the active version for a catalogue document, or the upload's own text. */
+function addCurrentToCompare(termType: string) {
+  const analysis = analyses.value[termType]
+  const service = selectedService.value
+  if (!analysis || !service) return
+
+  if (termType === UPLOAD_TERM_TYPE) {
+    const content = retrievals.value[termType]?.content
+    if (content == null) return
+    compareList.add({
+      displayName: compareDisplayName(termType),
+      serviceName: service.name,
+      documentType: termType,
+      analysis,
+      sourceRef: { kind: 'upload', name: service.name, content },
+    })
+    addedTermTypes.value.add(termType)
+    return
+  }
+
+  const versionUrl = loadedVersionUrl.value[termType] ?? undefined
+  const sourceRef = catalogueSourceRef(termType, versionUrl)
+  if (!sourceRef) return
+  const versionLabel = versionUrl
+    ? versions.value[termType]?.find((version) => version.url === versionUrl)?.label ?? null
+    : null
+  compareList.add({
+    displayName: compareDisplayName(termType, versionLabel),
+    serviceName: service.name,
+    documentType: termType,
+    analysis,
+    sourceRef,
+  })
+  addedTermTypes.value.add(termType)
+}
+
+/** Add the archived version currently selected in the History popover, without disturbing the active document. */
+async function addVersionToCompare(termType: string) {
+  const versionUrl = selectedVersions.value[termType]
+  const service = selectedService.value
+  if (!versionUrl || !service) return
+  const sourceRef = catalogueSourceRef(termType, versionUrl)
+  if (!sourceRef) return
+  try {
+    const retrieval = await fetchRetrieval(versionUrl)
+    const analysis = await fetchAnalysis(retrieval.content, retrieval.contexts, service.name, termType)
+    const versionLabel = versions.value[termType]?.find((version) => version.url === versionUrl)?.label ?? null
+    compareList.add({
+      displayName: compareDisplayName(termType, versionLabel),
+      serviceName: service.name,
+      documentType: termType,
+      analysis,
+      sourceRef,
+    })
+    addedVersionKeys.value.add(`${termType}:${versionUrl}`)
+  } catch (cause) {
+    retrievalErrors.value[termType] =
+      cause instanceof Error ? cause.message : 'That version could not be added to compare.'
+  }
+}
+
+/** Whether the "Add to compare" button for this card's current content has already been clicked. */
+function isCurrentCompared(termType: string) {
+  return addedTermTypes.value.has(termType)
+}
+
+/** Whether the History popover's "Add this version" button for the selected version has already been clicked. */
+function isSelectedVersionCompared(termType: string) {
+  const versionUrl = selectedVersions.value[termType]
+  if (!versionUrl) return false
+  return addedVersionKeys.value.has(`${termType}:${versionUrl}`)
+}
+
+/**
+ * Re-enter a document from a compare card's "See details". An uploaded
+ * entry replays its already-in-hand text through handleUpload (no fetch);
+ * a catalogue entry drives the existing select/activate/retrieve functions
+ * from its route query, exactly like a normal user click-through.
+ */
+async function hydrateFromCompareReopen() {
+  if (pendingReopen.value) {
+    const upload = pendingReopen.value
+    pendingReopen.value = null
+    await handleUpload({ name: upload.name, content: upload.content })
+    return
+  }
+
+  const { servicePath, termType, versionUrl, serviceName } = route.query
+  if (typeof servicePath !== 'string' || typeof termType !== 'string') return
+  const service: Service = services.value.find((candidate) => candidate.path === servicePath) ?? {
+    name: typeof serviceName === 'string' ? serviceName : servicePath,
+    path: servicePath,
+  }
+  await selectService(service)
+  activateAndLoad(termType)
+  if (typeof versionUrl === 'string' && versionUrl) {
+    selectedVersions.value[termType] = versionUrl
+    await retrieveSelectedVersion(termType)
+  }
+}
 </script>
 
 <!--
-  Structure: header (brand + quick guide + theme toggle) · two-column layout —
-  the risk-preference sidebar (chunk 5) on the left, and on the right: the
-  search bar (1), one card per document type (2), the active document's
-  clauses (3), and its original text (4).
+  Structure: header (brand + quick guide + Compare link + theme toggle) ·
+  two-column layout — the risk-preference sidebar (chunk 5) on the left, and
+  on the right: the search bar (1), one card per document type (2), the
+  active document's clauses (3), and its original text (4).
 -->
 <template>
-  <header class="border-bottom bg-body sticky-top">
-    <div class="container app-shell py-3 d-flex align-items-center flex-wrap gap-2">
-      <RouterLink to="/" class="brand-lockup" aria-label="Before You Agree - home">
-        <img :src="logoUrl" alt="" class="brand-logo" />
-        <span class="brand-wordmark">Before You Agree</span>
-      </RouterLink>
-      <div class="ms-auto d-flex align-items-center gap-2">
-        <QuickGuide />
-        <motion.button
-          type="button"
-          class="btn btn-sm btn-outline-secondary"
-          :while-hover="{ scale: 1.08, rotate: 12 }"
-          :while-press="{ scale: 0.9 }"
-          :transition="BUTTON_SPRING"
-          :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
-          @click="toggleTheme"
-        >
-          <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
-        </motion.button>
-      </div>
-    </div>
-  </header>
+  <AppHeader :theme="theme" :compare-count="compareList.entries.value.length" @toggle-theme="toggleTheme" />
 
   <main class="container app-shell my-4 my-md-5">
     <div class="mb-4 mb-md-5">
@@ -528,11 +644,15 @@ async function retrieveSelectedVersion(termType: string) {
             :versions="versions[termType]"
             :selected-version="selectedVersions[termType] || ''"
             :loading-history="loadingHistoryTerm === termType"
+            :is-compared="isCurrentCompared(termType)"
+            :is-version-compared="isSelectedVersionCompared(termType)"
             @activate="activateAndLoad(termType)"
             @toggle-full-document="toggleFullDocument(termType)"
             @toggle-history="toggleHistory(termType)"
             @update:selected-version="selectedVersions[termType] = $event"
             @retrieve-version="retrieveSelectedVersion(termType)"
+            @add-to-compare="addCurrentToCompare(termType)"
+            @add-version-to-compare="addVersionToCompare(termType)"
           >
             <ClausesPanel
               :key="termType"
