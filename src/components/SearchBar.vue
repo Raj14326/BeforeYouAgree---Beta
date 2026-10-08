@@ -6,7 +6,7 @@
  * a debounced remote search against `/api/services`. Reports back to the
  * parent only when a service should be loaded, via the `select` emit.
  */
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
 import { apiUrl } from '@/lib/api'
 import type { Service } from '@/types'
@@ -24,11 +24,15 @@ const emit = defineEmits<{
 }>()
 
 const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
+/** Shared with the wrapper's `layout` animation, so the float-up/settle-back glide matches this spring. */
+const SPOTLIGHT_SPRING = { type: 'spring', stiffness: 300, damping: 30 } as const
 
 const query = ref('')
+/** True from focus until blur — doubles as the autocomplete-open flag and the Spotlight-mode flag. */
 const isOpen = ref(false)
 const activeIndex = ref(-1)
 const error = ref('')
+const inputRef = ref<HTMLInputElement | null>(null)
 /** Remote results are supplemental: locally loaded services always remain immediately searchable. */
 const remoteSearch = ref<{ query: string; services: Service[] } | null>(null)
 const searchCache = new Map<string, Service[]>()
@@ -138,9 +142,19 @@ function handleKeydown(event: KeyboardEvent) {
     const service = suggestions.value[activeIndex.value]
     if (service) selectService(service)
   } else if (event.key === 'Escape') {
-    isOpen.value = false
+    closeSpotlight()
   }
 }
+
+/** Exit Spotlight mode by blurring the input; the `@blur` handler closes the dropdown and overlay. */
+function closeSpotlight() {
+  inputRef.value?.blur()
+}
+
+/** Lock page scroll while Spotlight mode is active so the blurred background can't scroll underneath. */
+watch(isOpen, (open) => {
+  document.body.style.overflow = open ? 'hidden' : ''
+})
 
 /** Handle the search form submit: pick an exact name match, else the top suggestion, else show an error. */
 function submitSearch() {
@@ -158,6 +172,7 @@ function submitSearch() {
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   searchController?.abort()
+  document.body.style.overflow = ''
 })
 
 function selectService(service: Service) {
@@ -170,6 +185,26 @@ function selectService(service: Service) {
 </script>
 
 <template>
+  <Teleport to="body">
+    <AnimatePresence>
+      <motion.div
+        v-if="isOpen"
+        class="search-spotlight-backdrop"
+        :initial="{ opacity: 0 }"
+        :animate="{ opacity: 1 }"
+        :exit="{ opacity: 0 }"
+        :transition="{ duration: 0.2, ease: 'easeOut' }"
+        @mousedown="closeSpotlight"
+      ></motion.div>
+    </AnimatePresence>
+  </Teleport>
+
+  <motion.div
+    class="search-bar-wrapper"
+    :class="{ 'spotlight-active': isOpen }"
+    layout
+    :transition="SPOTLIGHT_SPRING"
+  >
   <form class="card card-body shadow-sm search-bar" @submit.prevent="submitSearch">
     <label for="service" class="form-label fw-medium">Service</label>
     <div class="row g-2">
@@ -178,6 +213,7 @@ function selectService(service: Service) {
           <span class="input-group-text"><i class="bi bi-search"></i></span>
           <input
             id="service"
+            ref="inputRef"
             v-model="query"
             class="form-control"
             type="text"
@@ -242,9 +278,33 @@ function selectService(service: Service) {
     </p>
     <div v-if="error" class="alert alert-warning mt-2 mb-0 py-2" role="alert">{{ error }}</div>
   </form>
+  </motion.div>
 </template>
 
 <style scoped>
+.search-spotlight-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1055;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.search-bar-wrapper.spotlight-active {
+  position: fixed;
+  top: 12vh;
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: min(90vw, 640px);
+  z-index: 1060;
+}
+
+.search-bar-wrapper.spotlight-active .search-bar {
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35) !important;
+}
+
 .autocomplete-popup {
   position: absolute;
   z-index: 1000;
