@@ -7,14 +7,12 @@
  * can be reused unchanged for a future side-by-side comparison view.
  */
 import { computed } from 'vue'
+import DocumentRiskOverview from '@/components/DocumentRiskOverview.vue'
 import HoverTooltipBubble from '@/components/HoverTooltipBubble.vue'
 import { useHoverTooltip } from '@/composables/useHoverTooltip'
 import { aggregateScorecardRows } from '@/lib/category-aggregation'
 import { categoryColor } from '@/lib/category-colors'
 import { buildCategoryPieSlices, PIE_RADIUS } from '@/lib/category-pie'
-import { documentRiskScore } from '@/lib/document-risk-score'
-import { personalisedRiskLevel } from '@/lib/personalised-risk-score'
-import { riskLevelBadgeClass, riskLevelPhrase } from '@/lib/risk-level'
 import type { Analysis } from '@/types'
 
 const { analysis, categoryPriority, enabledCategoryIds, riskPreferencesEnabled } = defineProps<{
@@ -23,20 +21,6 @@ const { analysis, categoryPriority, enabledCategoryIds, riskPreferencesEnabled }
   enabledCategoryIds: Set<string>
   riskPreferencesEnabled: boolean
 }>()
-
-const risk = computed(() =>
-  documentRiskScore(analysis, categoryPriority, enabledCategoryIds, riskPreferencesEnabled),
-)
-
-const level = computed(() => personalisedRiskLevel(risk.value.score))
-const levelLabel = computed(() => `${level.value[0]!.toUpperCase()}${level.value.slice(1)} risk`)
-
-/** Bootstrap "alert" tint matching the score's risk level, so the banner agrees with the badge above it. */
-const summaryClass = computed(() => {
-  if (level.value === 'high') return 'alert-danger'
-  if (level.value === 'medium') return 'alert-warning'
-  return 'alert-success'
-})
 
 const scorecardRows = computed(() => aggregateScorecardRows(analysis))
 const detectedCount = computed(() => scorecardRows.value.filter((row) => row.detected).length)
@@ -55,41 +39,13 @@ const { activeInfo, scheduleInfo, scheduleInfoAtPointer, closeInfo } = useHoverT
 
 <template>
   <div class="privacy-nutrition-card" v-bind="$attrs">
-    <div class="row g-2 mb-2">
-      <div class="col-sm-6">
-        <div class="nutrition-tile h-100">
-          <div class="display-6 fw-bold lh-1">{{ risk.score }} / 100</div>
-          <div class="d-flex align-items-center gap-2 mt-2">
-            <span class="small text-body-secondary">document risk</span>
-            <span class="badge" :class="riskLevelBadgeClass(level)">{{ levelLabel }}</span>
-          </div>
-        </div>
-      </div>
-      <div class="col-sm-6">
-        <div class="nutrition-tile h-100">
-          <div class="d-flex justify-content-between align-items-baseline">
-            <span class="fs-5 fw-semibold">{{ analysis.riskyClauseCount }} / {{ analysis.clauseCount }}</span>
-            <span class="badge text-bg-secondary">{{ risk.flaggedShare }}% flagged</span>
-          </div>
-          <div
-            class="progress mt-2"
-            role="progressbar"
-            aria-label="Share of clauses flagged as risky"
-            :aria-valuenow="risk.flaggedShare"
-            aria-valuemin="0"
-            aria-valuemax="100"
-            style="height: 8px"
-          >
-            <div class="progress-bar" :class="risk.severityClass" :style="{ width: `${risk.flaggedShare}%` }"></div>
-          </div>
-          <div class="small text-body-secondary mt-2">clauses flagged as risky</div>
-        </div>
-      </div>
-    </div>
-
-    <p class="alert small py-2 px-3 mb-2" :class="summaryClass" role="status">
-      {{ riskLevelPhrase(risk.score) }}
-    </p>
+    <DocumentRiskOverview
+      :analysis="analysis"
+      :category-priority="categoryPriority"
+      :enabled-category-ids="enabledCategoryIds"
+      :risk-preferences-enabled="riskPreferencesEnabled"
+      class="mb-2"
+    />
 
     <div class="row g-3">
       <div class="col-md-7">
@@ -176,12 +132,6 @@ const { activeInfo, scheduleInfo, scheduleInfoAtPointer, closeInfo } = useHoverT
 </template>
 
 <style scoped>
-.nutrition-tile {
-  padding: 0.85rem 1rem;
-  border-radius: var(--bs-border-radius);
-  background-color: var(--bs-tertiary-bg);
-}
-
 .scorecard-table {
   --bs-table-bg: transparent;
 }

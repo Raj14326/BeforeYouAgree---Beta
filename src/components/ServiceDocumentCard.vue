@@ -27,6 +27,8 @@ const {
   versions,
   selectedVersion,
   loadingHistory,
+  isCompared,
+  isVersionCompared,
 } = defineProps<{
   serviceName: string
   termType: string
@@ -43,6 +45,10 @@ const {
   versions: VersionOption[] | undefined
   selectedVersion: string
   loadingHistory: boolean
+  /** Whether the currently loaded version of this document is already in the compare list. */
+  isCompared: boolean
+  /** Whether the version selected in the History popover is already in the compare list. */
+  isVersionCompared: boolean
 }>()
 
 const emit = defineEmits<{
@@ -51,6 +57,8 @@ const emit = defineEmits<{
   'toggle-history': []
   'update:selectedVersion': [value: string]
   'retrieve-version': []
+  'add-to-compare': []
+  'add-version-to-compare': []
 }>()
 
 const cardElement = ref<HTMLElement | null>(null)
@@ -162,7 +170,7 @@ function leaveDetails(element: Element) {
         <div v-if="analysisError" class="text-danger small mt-1">{{ analysisError }}</div>
       </div>
 
-      <div class="d-flex align-items-center gap-2 position-relative" @click.stop>
+      <div class="d-flex flex-wrap justify-content-end align-items-center gap-2 position-relative" @click.stop>
         <button
           v-if="hasAnalysis || isActive || isLoading || isAnalysing"
           type="button"
@@ -173,6 +181,18 @@ function leaveDetails(element: Element) {
         >
           <i class="bi me-1" :class="isActive ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
           {{ isActive ? 'Collapse' : 'View analysis' }}
+        </button>
+
+        <button
+          v-if="hasAnalysis"
+          type="button"
+          class="btn btn-sm"
+          :class="isCompared ? 'btn-secondary' : 'btn-outline-secondary'"
+          :disabled="isCompared"
+          @click="emit('add-to-compare')"
+        >
+          <i class="bi me-1" :class="isCompared ? 'bi-check-lg' : 'bi-ui-checks-grid'" aria-hidden="true"></i>
+          {{ isCompared ? 'Added to compare' : 'Add to compare' }}
         </button>
 
         <button
@@ -219,6 +239,15 @@ function leaveDetails(element: Element) {
             @click="emit('retrieve-version')"
           >
             Retrieve
+          </button>
+          <button
+            type="button"
+            class="btn btn-sm w-100 mt-2"
+            :class="isVersionCompared ? 'btn-secondary' : 'btn-outline-secondary'"
+            :disabled="!selectedVersion || isVersionCompared"
+            @click="emit('add-version-to-compare')"
+          >
+            {{ isVersionCompared ? 'Version added to compare' : 'Add this version to compare' }}
           </button>
         </div>
       </div>
