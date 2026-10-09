@@ -5,7 +5,7 @@ import { pipeline } from 'node:stream/promises'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
 const MODEL_DIR = resolve(
-  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-v2-balanced',
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
 )
 
 const MODEL_FILES = [

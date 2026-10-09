@@ -92,4 +92,70 @@ describe('privacy policy signals', () => {
       detectPrivacyRisks('When you share information publicly, search engines may find it.'),
     ).toEqual([])
   })
+
+  it('covers recurring wording from unrelated production privacy policies', () => {
+    const examples = [
+      [
+        'We collect log and event information about the pages, channels, features, and embedded content you interact with.',
+        'privacy_broad_collection',
+      ],
+      [
+        'We infer your general geographic location from your IP address.',
+        'privacy_location_tracking',
+      ],
+      [
+        'We combine your activity across our services and devices to build a profile of your interests.',
+        'privacy_cross_service_profiling',
+      ],
+      [
+        'We use your browsing activity and interests to deliver personalized advertising.',
+        'privacy_personalized_ads',
+      ],
+      [
+        'Our automated systems scan messages and uploaded images for safety and content moderation.',
+        'privacy_content_analysis',
+      ],
+      [
+        'We share personal information with affiliates, analytics providers, and service providers.',
+        'privacy_third_party_sharing',
+      ],
+      [
+        'We disclose account records to law enforcement in response to a subpoena or court order.',
+        'privacy_government_disclosure',
+      ],
+      [
+        'Your organization administrator may access, export, delete, or restrict the data in your account.',
+        'privacy_admin_control',
+      ],
+      [
+        'We may retain account information after you delete your account for legal, fraud-prevention, and audit purposes.',
+        'privacy_extended_retention',
+      ],
+      [
+        'We may store and process your data in the United States and other countries outside your country of residence.',
+        'privacy_international_transfer',
+      ],
+      [
+        'If we are involved in a merger, acquisition, or sale of assets, your information may be transferred to a successor.',
+        'privacy_business_transfer',
+      ],
+    ] as const
+
+    for (const [text, expected] of examples) {
+      expect(detectPrivacyRisks(text).map(({ id }) => id), text).toContain(expected)
+    }
+  })
+
+  it('rejects common protective, user-directed, definitional, and address false positives', () => {
+    const examples = [
+      'We do not sell or share your personal information with advertisers.',
+      'When you choose to share a file, we make it available to the people you select.',
+      'We retain personal data only for as long as necessary to provide the service.',
+      'Our office address is 101 Townsend Street, San Francisco, California.',
+      'You can access, download, correct, or delete your personal information in settings.',
+      'We do not collect or track your precise location.',
+    ]
+
+    for (const text of examples) expect(detectPrivacyRisks(text), text).toEqual([])
+  })
 })

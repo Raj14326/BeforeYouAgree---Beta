@@ -7,8 +7,8 @@
 <h1 align="left">Before You Agree</h1>
 
 Before You Agree retrieves terms and privacy policies, then uses a fine-tuned
-LEGAL-BERT model to classify each clause across eight potentially unfair Terms of
-Service categories.
+LEGAL-BERT model to classify each clause across eight potentially unfair Terms
+of Service categories, complemented by auditable privacy-policy rules.
 
 ## Run with npm
 
@@ -85,8 +85,9 @@ Example analysis request:
 
 ## Model
 
-The application uses a fine-tuned LEGAL-BERT Small checkpoint. Each clause can
-receive any of these labels:
+The application uses the V2 fine-tuned LEGAL-BERT Small checkpoint for the
+eight Terms-of-Service labels below. Privacy categories are detected by the
+auditable patterns in `server/privacy-rules.ts`.
 
 - limitation of liability
 - unilateral termination
@@ -96,6 +97,20 @@ receive any of these labels:
 - choice of law
 - jurisdiction
 - arbitration
+
+The privacy rules additionally identify:
+
+- broad data collection
+- third-party data sharing
+- personalized advertising
+- location tracking
+- extended data retention
+- international data transfer
+- government disclosure
+- cross-service profiling
+- content or audio analysis
+- administrator access and control
+- business-transfer disclosure
 
 The Node inference code is in `server/bert-model.ts` and loads the local ONNX
 checkpoint directly. Model weights remain outside Git and are distributed in

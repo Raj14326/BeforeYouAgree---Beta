@@ -99,7 +99,7 @@ const server = http.createServer(async (request, response) => {
         status: 'ok',
         source: 'tosdr',
         upstream: TOSDR_API,
-        model: 'BYA LegalBERT v2 Balanced eight-label classifier',
+        model: 'BYA LegalBERT v2 eight-label classifier with privacy rules',
       })
     }
     if (request.method === 'POST' && url.pathname === '/api/analyze') {

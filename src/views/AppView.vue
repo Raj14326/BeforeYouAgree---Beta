@@ -131,6 +131,7 @@ function documentHtml(termType: string) {
     retrievals.value[termType]?.content ?? '',
     analyses.value[termType],
     termType,
+    retrievals.value[termType]?.contexts,
   )
 }
 

@@ -53,4 +53,18 @@ describe('policy clause splitting', () => {
     expect(clauses[1]?.skipAnalysis).toBe(true)
     expect(clauses[2]?.context).toBe('Information we collect — Activity may include')
   })
+
+  it('skips internal Markdown navigation links but retains substantive clauses', () => {
+    const content = "Limitation of liability](#15)[16.\n\nWe limit our liability to the amount you paid us."
+    const clauses = splitClauses(content)
+
+    expect(clauses[0]).toMatchObject({
+      text: 'Limitation of liability](#15)[16.',
+      skipAnalysis: true,
+    })
+    expect(clauses[1]).toMatchObject({
+      text: 'We limit our liability to the amount you paid us.',
+    })
+    expect(clauses[1]?.skipAnalysis).toBeUndefined()
+  })
 })

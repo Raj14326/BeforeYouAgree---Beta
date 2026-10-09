@@ -1,8 +1,9 @@
 /**
  * BERT clause category classifier: inference only.
  *
- * Fine-tuned BYA LEGAL-BERT v2 Balanced model (8 unfair ToS categories,
- * multi-label). This module never trains; it loads the exported ONNX
+ * Fine-tuned BYA LEGAL-BERT v2 model (8 unfair ToS categories, multi-label).
+ * Privacy findings are supplied by the auditable rules in `privacy-rules.ts`.
+ * This module never trains; it loads the exported ONNX
  * checkpoint once, lazily, and scores clause text against it.
  *
  * Pipeline: raw document text → {@link segments} splits it into clauses →
@@ -29,7 +30,7 @@ import { supplementalCategories, validCategories } from './category-validation.t
  * a Hugging Face download. Override the directory with `BERT_MODEL_DIR`.
  */
 const MODEL_PATH = resolve(
-  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-v2-balanced',
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
 )
 env.allowRemoteModels = false
 

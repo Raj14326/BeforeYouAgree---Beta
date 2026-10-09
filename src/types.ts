@@ -14,6 +14,13 @@ export type Term = {
 export type Declaration = { name: string; terms: Record<string, Term> }
 export type Service = { name: string; path: string }
 export type VersionOption = { id: string; updatedAt: string | null; label: string; url: string }
+export type DocumentContext = {
+  start: number
+  end: number
+  text: string
+  headingStart?: number
+  headingEnd?: number
+}
 export type Retrieval = {
   format: 'plain_text'
   id: string
@@ -23,7 +30,7 @@ export type Retrieval = {
   fetchDate: string | null
   characterCount: number
   content: string
-  contexts?: Array<{ start: number; end: number; text: string }>
+  contexts?: DocumentContext[]
   repository: string
   repositoryUrl: string
 }

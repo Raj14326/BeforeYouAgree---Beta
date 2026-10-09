@@ -21,6 +21,11 @@ function isBullet(text: string) {
   return /^(?:[-*•]|\d+[.)])\s+/u.test(text)
 }
 
+function isNavigationFragment(text: string) {
+  // Internal Markdown links are navigation/TOC entries, not operative policy clauses.
+  return /\]\(\s*#[^)]+\)/u.test(text)
+}
+
 function inferredContext(text: string) {
   const isShortIntroduction = text.length <= 160 && !isBullet(text) &&
     (/:\s*$/u.test(text) || !/[.!?]\s*$/u.test(text))
@@ -56,7 +61,7 @@ export function splitClauses(
     const heading = documentContexts.find(
       ({ headingStart, headingEnd }) => headingStart === clause.start && headingEnd === clause.end,
     )
-    if (heading || section?.skipAnalysis) clause.skipAnalysis = true
+    if (heading || section?.skipAnalysis || isNavigationFragment(clause.text)) clause.skipAnalysis = true
 
     if (isBullet(clause.text)) {
       clause.context = [...new Set([section?.text, listContext].filter(Boolean))].join(' — ') || undefined

@@ -14,10 +14,12 @@ describe('category validation', () => {
     expect(validCategories([category('privacy_broad_collection')], 'Examples of services include: * Gmail, for sending and receiving emails.')).toEqual([])
     expect(validCategories([category('privacy_broad_collection')], 'Some services require a Google Account to send and receive email.')).toEqual([])
     expect(validCategories([category('limitation_of_liability')], "These terms don't limit liability for fraud.")).toEqual([])
+    expect(validCategories([category('limitation_of_liability')], 'Limitation of liability](#15)[16.')).toEqual([])
   })
 
   it('retains genuine restrictions and adds high-precision misses', () => {
     expect(validCategories([category('limitation_of_liability')], "Google isn't liable for indirect losses.")).toHaveLength(1)
+    expect(validCategories([category('limitation_of_liability')], 'We limit our liability to the amount you paid us.')).toHaveLength(1)
     expect(supplementalCategories('To use our services, you must accept these terms.').map(({ id }) => id))
       .toContain('contract_by_using')
     expect(supplementalCategories('We sometimes add or remove features and stop offering old services.').map(({ id }) => id))
