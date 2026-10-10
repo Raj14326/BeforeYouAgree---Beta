@@ -7,59 +7,50 @@
  * shared table below all the cards (CategoryComparisonTable.vue) rather
  * than repeated per card. A placeholder banner above the cards is reserved
  * for a teammate's in-progress LLM risk/safety summary (useCompareSummary.ts).
+ *
+ * Sits outside the Search → Document → Review flow (its own unconnected node
+ * in FlowStepper); "See details" jumps back into Review for that entry.
  */
-import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import BrandAvatar from '@/components/BrandAvatar.vue'
 import CategoryComparisonTable from '@/components/CategoryComparisonTable.vue'
 import ComparisonSummaryBanner from '@/components/ComparisonSummaryBanner.vue'
 import DocumentRiskOverview from '@/components/DocumentRiskOverview.vue'
-import { pendingReopen, useCompareList, type CompareEntry } from '@/composables/useCompareList'
+import FlowBar from '@/components/FlowBar.vue'
+import { useCompareList, type CompareEntry } from '@/composables/useCompareList'
 import { useCompareSummary } from '@/composables/useCompareSummary'
+import { useDocumentSession } from '@/composables/useDocumentSession'
 import { useRiskPreferences } from '@/composables/useRiskPreferences'
+import { useTheme } from '@/composables/useTheme'
+import { reviewRoute, uploadReviewRoute } from '@/lib/flow-routes'
 
 const { entries, remove } = useCompareList()
 const { enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = useRiskPreferences()
 const { status, summary } = useCompareSummary(entries)
+const { startUpload } = useDocumentSession()
+const { theme, toggleTheme } = useTheme()
 const router = useRouter()
 
-const theme = ref<'light' | 'dark'>(
-  document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
-)
-
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-  document.documentElement.setAttribute('data-bs-theme', theme.value)
-  try {
-    localStorage.setItem('bya-theme', theme.value)
-  } catch {
-    // Storage can be unavailable (private mode); the toggle still applies this session.
-  }
-}
-
-const compareCount = computed(() => entries.value.length)
-
+/**
+ * Re-enter Review for a compare entry. A catalogue entry is just a route
+ * (the session reloads it if needed); an upload's text isn't in the URL, so
+ * it's replayed into the session first.
+ */
 function openEntry(entry: CompareEntry) {
   if (entry.sourceRef.kind === 'upload') {
-    pendingReopen.value = entry.sourceRef
-    router.push('/app')
+    startUpload({ name: entry.sourceRef.name, content: entry.sourceRef.content })
+    void router.push(uploadReviewRoute)
     return
   }
-  router.push({
-    path: '/app',
-    query: {
-      servicePath: entry.sourceRef.servicePath,
-      serviceName: entry.sourceRef.serviceName,
-      termType: entry.sourceRef.termType,
-      versionUrl: entry.sourceRef.versionUrl ?? '',
-    },
-  })
+  const { servicePath, termType, serviceName, versionUrl } = entry.sourceRef
+  void router.push(reviewRoute(servicePath, termType, serviceName, versionUrl))
 }
 </script>
 
 <template>
-  <AppHeader :theme="theme" :compare-count="compareCount" @toggle-theme="toggleTheme" />
+  <AppHeader :theme="theme" @toggle-theme="toggleTheme" />
+  <FlowBar />
 
   <main class="container app-shell my-4 my-md-5">
     <div class="mb-4">
@@ -68,7 +59,8 @@ function openEntry(entry: CompareEntry) {
     </div>
 
     <div v-if="!entries.length" class="alert alert-light border" role="status">
-      Nothing added yet. Open a document and click "Add to compare" to bring it here.
+      Nothing added yet. Search for a service above, open a document and click "Add to compare" to bring it
+      here.
     </div>
 
     <template v-else>

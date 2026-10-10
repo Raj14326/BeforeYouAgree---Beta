@@ -1,18 +1,16 @@
 <script setup lang="ts">
 /**
- * AppHeader.vue: brand + quick guide + Compare nav link + theme toggle,
- * extracted from AppView.vue so CompareView.vue (a sibling route) can share
- * the same header instead of duplicating it. Every class used here
- * (app-shell, brand-lockup, brand-logo, brand-wordmark) is a global style in
- * src/assets/main.css, so this is a pure markup move.
+ * AppHeader.vue: brand + quick guide + theme toggle, shared by every view
+ * after the landing page. Navigation between steps (and to Compare) lives in
+ * FlowStepper, just below. Every class used here (app-shell, brand-lockup,
+ * brand-logo, brand-wordmark) is a global style in src/assets/main.css.
  */
 import { motion } from 'motion-v'
 import logoUrl from '@/assets/BYA_logo.png'
 import QuickGuide from '@/components/QuickGuide.vue'
 
-const { theme, compareCount } = defineProps<{
+const { theme } = defineProps<{
   theme: 'light' | 'dark'
-  compareCount: number
 }>()
 
 defineEmits<{ 'toggle-theme': [] }>()
@@ -29,16 +27,6 @@ const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
       </RouterLink>
       <div class="ms-auto d-flex align-items-center gap-2">
         <QuickGuide />
-        <RouterLink to="/compare" class="btn btn-sm btn-outline-secondary position-relative">
-          Compare
-          <span
-            v-if="compareCount > 0"
-            class="position-absolute top-0 start-100 translate-middle badge rounded-pill text-bg-primary"
-          >
-            {{ compareCount }}
-            <span class="visually-hidden">documents in compare</span>
-          </span>
-        </RouterLink>
         <motion.button
           type="button"
           class="btn btn-sm btn-outline-secondary"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * App.vue: router outlet only. Page content lives in `src/views/*.vue`
- * (LandingView at `/`, AppView — the actual tool — at `/app`).
+ * (LandingView at `/`, then DocumentSelectView and ReviewView — see router).
  *
  * `MotionConfig reduced-motion="user"` makes every motion-v animation in the
  * app check `prefers-reduced-motion` and skip straight to its end state for

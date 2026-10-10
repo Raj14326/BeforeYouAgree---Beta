@@ -5,6 +5,10 @@
  * Owns its own autocomplete UI state (query, open dropdown, keyboard nav) and
  * a debounced remote search against `/api/services`. Reports back to the
  * parent only when a service should be loaded, via the `select` emit.
+ *
+ * `compact` is the slimmer variant shown in FlowBar on every view after the
+ * landing page: same behaviour (including Spotlight mode), but a visually
+ * hidden label, normal-size controls and no catalogue count line.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { AnimatePresence, motion } from 'motion-v'
@@ -12,11 +16,12 @@ import { apiUrl } from '@/lib/api'
 import type { Service } from '@/types'
 import BrandAvatar from './BrandAvatar.vue'
 
-const { services, isCatalogueLoading, isServiceLoading, catalogueIsFallback } = defineProps<{
+const { services, isCatalogueLoading, isServiceLoading, catalogueIsFallback, compact = false } = defineProps<{
   services: Service[]
   isCatalogueLoading: boolean
   isServiceLoading: boolean
   catalogueIsFallback: boolean
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -27,6 +32,8 @@ const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
 /** Shared with the wrapper's `layout` animation, so the float-up/settle-back glide matches this spring. */
 const SPOTLIGHT_SPRING = { type: 'spring', stiffness: 300, damping: 30 } as const
 
+/** Distinct per variant, so the label targets the right input if both ever render on one page. */
+const inputId = compact ? 'service-compact' : 'service'
 const query = ref('')
 /** True from focus until blur — doubles as the autocomplete-open flag and the Spotlight-mode flag. */
 const isOpen = ref(false)
@@ -205,14 +212,18 @@ function selectService(service: Service) {
     layout
     :transition="SPOTLIGHT_SPRING"
   >
-  <form class="card card-body shadow-sm search-bar" @submit.prevent="submitSearch">
-    <label for="service" class="form-label fw-medium">Service</label>
+  <form
+    class="card card-body shadow-sm search-bar"
+    :class="{ 'search-bar-compact': compact }"
+    @submit.prevent="submitSearch"
+  >
+    <label :for="inputId" :class="compact ? 'visually-hidden' : 'form-label fw-medium'">Service</label>
     <div class="row g-2">
       <div class="col position-relative">
-        <div class="input-group input-group-lg">
+        <div class="input-group" :class="{ 'input-group-lg': !compact }">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
           <input
-            id="service"
+            :id="inputId"
             ref="inputRef"
             v-model="query"
             class="form-control"
@@ -255,7 +266,8 @@ function selectService(service: Service) {
       <div class="col-auto">
         <motion.button
           type="submit"
-          class="btn btn-primary btn-lg"
+          class="btn btn-primary"
+          :class="{ 'btn-lg': !compact }"
           :disabled="isCatalogueLoading || isServiceLoading"
           :while-hover="{ scale: 1.04, y: -2 }"
           :while-press="{ scale: 0.97, y: 0 }"
@@ -267,7 +279,7 @@ function selectService(service: Service) {
       </div>
     </div>
 
-    <p class="form-text mb-0 mt-2">
+    <p v-if="!compact" class="form-text mb-0 mt-2">
       <span v-if="isCatalogueLoading">
         <span class="spinner-border spinner-border-sm"></span> Loading service list…
       </span>
@@ -303,6 +315,10 @@ function selectService(service: Service) {
 
 .search-bar-wrapper.spotlight-active .search-bar {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35) !important;
+}
+
+.search-bar-compact {
+  padding: 0.5rem;
 }
 
 .autocomplete-popup {

@@ -1,8 +1,8 @@
 /**
- * Risk-preference state (category filter/order/toggle), extracted out of
- * AppView.vue so CompareView.vue — a sibling route, not a child — can score
- * compared documents with the same live preferences the user sees in
- * AppView.vue's sidebar. Module-scope singleton, same reasoning as
+ * Risk-preference state (category filter/order/toggle), shared so
+ * CompareView.vue — a sibling route, not a child — can score compared
+ * documents with the same live preferences the user sees in ReviewView.vue's
+ * sidebar. Module-scope singleton, same reasoning as
  * useCompareList.ts: it must survive route changes within the SPA session.
  */
 import { ref } from 'vue'

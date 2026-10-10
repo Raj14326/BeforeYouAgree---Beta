@@ -28,21 +28,13 @@ export type CompareEntry = {
   displayName: string
   serviceName: string
   documentType: string
-  /** Copied at add-time — AppView.vue's analyses map is wiped/overwritten in place, so this must not alias into it. */
+  /** Copied at add-time — the document session's analyses map is wiped/overwritten in place, so this must not alias into it. */
   analysis: Analysis
   addedAt: string
   sourceRef: CompareSourceRef
 }
 
 const entries = ref<CompareEntry[]>([])
-
-/**
- * Set by a compare card's "See details" for an uploaded entry; AppView.vue
- * reads and clears this on mount to replay the upload flow without
- * round-tripping the document text through the URL (see CompareView.vue /
- * AppView.vue wiring).
- */
-export const pendingReopen = ref<(CompareSourceRef & { kind: 'upload' }) | null>(null)
 
 function idFor(sourceRef: CompareSourceRef): string {
   if (sourceRef.kind === 'upload') return `upload:${crypto.randomUUID()}`
