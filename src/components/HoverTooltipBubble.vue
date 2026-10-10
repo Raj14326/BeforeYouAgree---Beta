@@ -3,14 +3,16 @@
  * HoverTooltipBubble.vue: the "what does this mean" popover shown by
  * useHoverTooltip. Teleported to <body> so it's never clipped by a
  * scrolling/overflow ancestor; purely presentational, driven by `info`.
+ * `inline` skips the teleport, for triggers inside a modal <dialog> (its top
+ * layer sits above anything in <body>); position: fixed still escapes overflow.
  */
 import type { HoverTooltipInfo } from '@/composables/useHoverTooltip'
 
-defineProps<{ info: HoverTooltipInfo | null }>()
+defineProps<{ info: HoverTooltipInfo | null; inline?: boolean }>()
 </script>
 
 <template>
-  <Teleport to="body">
+  <Teleport to="body" :disabled="inline">
     <Transition name="hover-tooltip">
       <div
         v-if="info"

@@ -32,7 +32,7 @@ const pieCenter = pieViewBoxSize / 2
 /** Share of total tagged occurrences each detected category accounts for — same figures as the pie slices. */
 const percentageByCategoryId = computed(() => new Map(pieSlices.value.map((slice) => [slice.id, slice.percentage])))
 
-// Same "what does this mean" bubble as RiskPreferenceSidebar, but instant
+// Same "what does this mean" bubble as RiskPreferencePanel, but instant
 // (delayMs 0) rather than its half-second hover delay.
 const { activeInfo, scheduleInfo, scheduleInfoAtPointer, closeInfo } = useHoverTooltip()
 </script>

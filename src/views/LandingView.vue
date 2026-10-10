@@ -16,6 +16,7 @@ import { useRoute, useRouter } from 'vue-router'
 import logoUrl from '@/assets/BYA_logo.png'
 import ClauseCard from '@/components/ClauseCard.vue'
 import DocumentUploadPanel from '@/components/DocumentUploadPanel.vue'
+import RiskPreferenceSettings from '@/components/RiskPreferenceSettings.vue'
 import SearchBar from '@/components/SearchBar.vue'
 import { useDocumentSession } from '@/composables/useDocumentSession'
 import { useServiceCatalogue } from '@/composables/useServiceCatalogue'
@@ -142,6 +143,7 @@ function reviewUpload(document: { name: string; content: string }) {
         <span class="brand-wordmark">Before You Agree</span>
       </RouterLink>
       <div class="ms-auto d-flex align-items-center gap-2">
+        <RiskPreferenceSettings />
         <motion.button type="button" class="btn btn-sm btn-outline-secondary"
           :while-hover="{ scale: 1.08, rotate: 12 }" :while-press="{ scale: 0.9 }" :transition="BUTTON_SPRING"
           :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'" @click="toggleTheme">

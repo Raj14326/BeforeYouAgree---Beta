@@ -1,6 +1,6 @@
 // Shared "what does this mean" hover bubble: a fixed-position popover
 // (rendered by HoverTooltipBubble.vue, teleported to <body>) positioned next
-// to whatever triggered it. Originally built for RiskPreferenceSidebar's
+// to whatever triggered it. Originally built for RiskPreferencePanel's
 // half-second hover delay; `delayMs` lets other callers show it instantly.
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 

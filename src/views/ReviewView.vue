@@ -2,7 +2,8 @@
 /**
  * ReviewView.vue: step 3 of the flow — the full analysis of one document:
  * nutrition card, flagged clauses, original text with highlights, version
- * history, add-to-compare, beside the risk-preference sidebar.
+ * history, add-to-compare. Risk preferences (filter/order of the clause list)
+ * are set globally from the header's RiskPreferenceSettings dialog.
  *
  * Two routes land here:
  *  - `/service/:servicePath/:termType` (optional `?version=` for an archived
@@ -19,7 +20,6 @@ import AppHeader from '@/components/AppHeader.vue'
 import ClausesPanel from '@/components/ClausesPanel.vue'
 import FlowBar from '@/components/FlowBar.vue'
 import OriginalDocumentPanel from '@/components/OriginalDocumentPanel.vue'
-import RiskPreferenceSidebar from '@/components/RiskPreferenceSidebar.vue'
 import ServiceDocumentCard from '@/components/ServiceDocumentCard.vue'
 import { useDocumentSession } from '@/composables/useDocumentSession'
 import { useRiskPreferences } from '@/composables/useRiskPreferences'
@@ -158,67 +158,59 @@ async function showInText(finding: RiskFinding) {
         </h1>
       </div>
 
-      <div class="layout-grid">
-        <RiskPreferenceSidebar
-          v-model:enabled-category-ids="enabledCategoryIds"
-          v-model:category-priority="categoryPriority"
-          v-model:risk-preferences-enabled="riskPreferencesEnabled"
-        />
-
-        <div class="main-column">
-          <ServiceDocumentCard
-            :service-name="selectedService.name"
-            :term-type="termType"
-            :title="isUpload ? 'Uploaded document' : session.documentLabel(termType)"
-            :term="term"
-            :retrieval="retrievals[termType]"
-            :has-analysis="Boolean(analysis)"
-            :full-document-open="originalDocOpen"
-            :is-loading="session.isInitialLoading(termType)"
-            :is-analysing="Boolean(analysingTerm[termType])"
-            :retrieval-error="retrievalErrors[termType] || ''"
-            :analysis-error="analysisErrors[termType] || ''"
-            :history-open="openHistoryTerm === termType"
-            :versions="versions[termType]"
-            :selected-version="selectedVersions[termType] || ''"
-            :loading-history="loadingHistoryTerm === termType"
-            :is-compared="session.isCurrentCompared(termType)"
-            :is-version-compared="session.isSelectedVersionCompared(termType)"
-            @toggle-full-document="originalDocOpen = !originalDocOpen"
-            @toggle-history="session.toggleHistory(termType)"
-            @update:selected-version="selectedVersions[termType] = $event"
-            @retrieve-version="retrieveSelectedVersion"
-            @add-to-compare="session.addCurrentToCompare(termType)"
-            @add-version-to-compare="session.addVersionToCompare(termType)"
+      <div class="main-column">
+        <ServiceDocumentCard
+          :service-name="selectedService.name"
+          :term-type="termType"
+          :title="isUpload ? 'Uploaded document' : session.documentLabel(termType)"
+          :term="term"
+          :retrieval="retrievals[termType]"
+          :has-analysis="Boolean(analysis)"
+          :full-document-open="originalDocOpen"
+          :is-loading="session.isInitialLoading(termType)"
+          :is-analysing="Boolean(analysingTerm[termType])"
+          :retrieval-error="retrievalErrors[termType] || ''"
+          :analysis-error="analysisErrors[termType] || ''"
+          :history-open="openHistoryTerm === termType"
+          :versions="versions[termType]"
+          :selected-version="selectedVersions[termType] || ''"
+          :loading-history="loadingHistoryTerm === termType"
+          :is-compared="session.isCurrentCompared(termType)"
+          :is-version-compared="session.isSelectedVersionCompared(termType)"
+          @toggle-full-document="originalDocOpen = !originalDocOpen"
+          @toggle-history="session.toggleHistory(termType)"
+          @update:selected-version="selectedVersions[termType] = $event"
+          @retrieve-version="retrieveSelectedVersion"
+          @add-to-compare="session.addCurrentToCompare(termType)"
+          @add-version-to-compare="session.addVersionToCompare(termType)"
+        >
+          <ClausesPanel
+            v-if="analysis"
+            :key="termType"
+            :analysis="analysis"
+            :filter="findingFilters[termType] || 'risky'"
+            :enabled-category-ids="enabledCategoryIds"
+            :category-priority="categoryPriority"
+            :risk-preferences-enabled="riskPreferencesEnabled"
+            @update:filter="findingFilters[termType] = $event"
+            @show-in-text="showInText"
+          />
+          <div
+            v-else-if="session.isInitialLoading(termType) || analysingTerm[termType]"
+            class="review-placeholder d-flex align-items-center gap-2 text-body-secondary"
+            role="status"
           >
-            <ClausesPanel
-              v-if="analysis"
-              :key="termType"
-              :analysis="analysis"
-              :filter="findingFilters[termType] || 'risky'"
-              :enabled-category-ids="enabledCategoryIds"
-              :category-priority="categoryPriority"
-              :risk-preferences-enabled="riskPreferencesEnabled"
-              @update:filter="findingFilters[termType] = $event"
-              @show-in-text="showInText"
-            />
-            <div
-              v-else-if="session.isInitialLoading(termType) || analysingTerm[termType]"
-              class="review-placeholder d-flex align-items-center gap-2 text-body-secondary"
-              role="status"
-            >
-              <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-              Analysing this document for risky clauses…
-            </div>
+            <span class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+            Analysing this document for risky clauses…
+          </div>
 
-            <OriginalDocumentPanel
-              :html="documentHtml"
-              :open="originalDocOpen"
-              :panel-id="originalDocumentId"
-              :has-risky-findings="Boolean(analysis?.riskyClauseCount)"
-            />
-          </ServiceDocumentCard>
-        </div>
+          <OriginalDocumentPanel
+            :html="documentHtml"
+            :open="originalDocOpen"
+            :panel-id="originalDocumentId"
+            :has-risky-findings="Boolean(analysis?.riskyClauseCount)"
+          />
+        </ServiceDocumentCard>
       </div>
     </template>
   </main>

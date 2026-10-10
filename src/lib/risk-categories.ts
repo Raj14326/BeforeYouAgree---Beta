@@ -1,7 +1,7 @@
 // Metadata for the risk categories a clause can be tagged with: the model's
 // 8 ToS labels predicted by the model plus 11 rule-based privacy labels (see
 // ml/local-models/bya-legalbert-v2-balanced/risk_config.json and
-// server/privacy-rules.ts). Shared by RiskPreferenceSidebar (toggle cards)
+// server/privacy-rules.ts). Shared by RiskPreferencePanel (toggle cards)
 // and anywhere else that needs a human-readable name/description for a
 // category id.
 
