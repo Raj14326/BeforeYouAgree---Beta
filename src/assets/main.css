@@ -91,20 +91,13 @@ main section,
 }
 
 .app-shell {
-  max-width: 1240px; /* wide enough for the preference sidebar + main column */
+  max-width: 1240px; /* wide enough for the Compare table */
 }
 
 /* ---------------------------------------------------------------------------
-   Layout grid: risk-preference sidebar (chunk 5) beside the main column
-   (search, service cards, clauses, original document — chunks 1-4).
+   Main column (service cards, clauses, original document). Risk preferences
+   live in a header dialog (RiskPreferenceSettings), not a sidebar.
 --------------------------------------------------------------------------- */
-.layout-grid {
-  display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
-  align-items: start;
-  gap: 1.5rem;
-}
-
 .main-column {
   display: flex;
   flex-direction: column;
@@ -116,21 +109,6 @@ main section,
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-}
-
-.risk-preference-sidebar {
-  position: sticky;
-  top: 5rem;
-}
-
-@media (max-width: 991.98px) {
-  .layout-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .risk-preference-sidebar {
-    position: static;
-  }
 }
 
 /* ---------------------------------------------------------------------------

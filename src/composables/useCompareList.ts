@@ -38,16 +38,29 @@ export type CompareEntry = {
 
 const entries = ref<CompareEntry[]>([])
 
-function idFor(sourceRef: CompareSourceRef): string {
-  if (sourceRef.kind === 'upload') return `upload:${crypto.randomUUID()}`
+/** Stable entry id for a catalogue document: service + termType + version. */
+export function catalogueCompareId(sourceRef: Extract<CompareSourceRef, { kind: 'catalogue' }>): string {
   return `${sourceRef.servicePath}:${sourceRef.termType}:${sourceRef.versionUrl ?? 'latest'}`
 }
 
-/** Catalogue entries dedupe by service+termType+version; uploads have no stable identity, so every add is distinct. */
-function add(entry: Omit<CompareEntry, 'id' | 'addedAt'>) {
+function idFor(sourceRef: CompareSourceRef): string {
+  if (sourceRef.kind === 'upload') return `upload:${crypto.randomUUID()}`
+  return catalogueCompareId(sourceRef)
+}
+
+/**
+ * Catalogue entries dedupe by service+termType+version; uploads have no
+ * stable identity, so every add is distinct. Returns the entry's id (the
+ * existing one when deduped) so callers can find or remove it later.
+ */
+function add(entry: Omit<CompareEntry, 'id' | 'addedAt'>): string {
   const id = idFor(entry.sourceRef)
-  if (entries.value.some((existing) => existing.id === id)) return
-  entries.value.push({ ...entry, id, addedAt: new Date().toISOString() })
+  if (!has(id)) entries.value.push({ ...entry, id, addedAt: new Date().toISOString() })
+  return id
+}
+
+function has(id: string) {
+  return entries.value.some((entry) => entry.id === id)
 }
 
 function remove(id: string) {
@@ -62,6 +75,7 @@ export function useCompareList() {
   return {
     entries: computed(() => entries.value),
     add,
+    has,
     remove,
     clear,
   }

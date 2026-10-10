@@ -1,5 +1,5 @@
 // Deterministic colour per risk category, so a given category's dot reads
-// the same everywhere it appears (clause cards, the preference sidebar).
+// the same everywhere it appears (clause cards, the risk preferences dialog).
 // Not tied to risk level (that's red/amber/green elsewhere) — this is purely
 // a "which of the ~18 categories is this" identifier.
 const PALETTE = [

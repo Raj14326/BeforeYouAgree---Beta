@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AppHeader.vue: brand + quick guide + theme toggle, shared by every view
+ * AppHeader.vue: brand + quick guide + risk preferences + theme toggle, shared by every view
  * after the landing page. Navigation between steps (and to Compare) lives in
  * FlowStepper, just below. Every class used here (app-shell, brand-lockup,
  * brand-logo, brand-wordmark) is a global style in src/assets/main.css.
@@ -8,6 +8,7 @@
 import { motion } from 'motion-v'
 import logoUrl from '@/assets/BYA_logo.png'
 import QuickGuide from '@/components/QuickGuide.vue'
+import RiskPreferenceSettings from '@/components/RiskPreferenceSettings.vue'
 
 const { theme } = defineProps<{
   theme: 'light' | 'dark'
@@ -27,6 +28,7 @@ const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
       </RouterLink>
       <div class="ms-auto d-flex align-items-center gap-2">
         <QuickGuide />
+        <RiskPreferenceSettings />
         <motion.button
           type="button"
           class="btn btn-sm btn-outline-secondary"
