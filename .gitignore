@@ -32,6 +32,11 @@ html-to-plain-text.spec.ts
 
 .eslintcache
 
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
 # Cypress
 /cypress/videos/
 /cypress/screenshots/
