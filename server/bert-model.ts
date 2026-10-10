@@ -22,7 +22,7 @@ import {
 } from '@huggingface/transformers'
 import { splitClauses, type Clause, type DocumentContext } from './clauses.ts'
 import { detectPrivacyRisks } from './privacy-rules.ts'
-import { classifyRiskLevel, type RiskLevel } from './risk-level.ts'
+import { classifyRiskLevel, REVIEW_MARGIN, type RiskLevel } from './risk-level.ts'
 import { supplementalCategories, validCategories } from './category-validation.ts'
 
 /**
@@ -57,6 +57,8 @@ export type CategoryFinding = {
 export type RiskFinding = {
   text: string
   context?: string
+  /** Neighbouring sentences used when contextual inference improved a near-threshold score. */
+  contextualText?: string
   start: number
   end: number
   occurrenceCount: number
@@ -155,7 +157,12 @@ function normalizedClause(text: string) {
   return text.toLocaleLowerCase('en').replace(/\s+/g, ' ').trim()
 }
 
-type ClauseGroup = { clause: Clause; occurrenceStarts: number[] }
+type ClauseGroup = {
+  clause: Clause
+  occurrenceStarts: number[]
+  /** The original clause plus its immediate neighbours, used only for uncertain-score rechecking. */
+  contextWindow: string
+}
 
 function classificationText(clause: Clause) {
   return clause.context ? `${clause.context}: ${clause.text}` : clause.text
@@ -170,13 +177,25 @@ function uniqueClauses(
     ({ text, skipAnalysis }) => !skipAnalysis && text.length >= 20 && (text.match(/[a-z]/gi)?.length ?? 0) >= 10,
   )
   const groups = new Map<string, ClauseGroup>()
-  for (const clause of sourceClauses) {
+  for (const [index, clause] of sourceClauses.entries()) {
     const key = normalizedClause(classificationText(clause))
     const existing = groups.get(key)
     if (existing) existing.occurrenceStarts.push(clause.start)
-    else groups.set(key, { clause, occurrenceStarts: [clause.start] })
+    else {
+      const contextWindow = sourceClauses
+        .slice(Math.max(0, index - 1), index + 2)
+        .map(classificationText)
+        .join(' ')
+      groups.set(key, { clause, occurrenceStarts: [clause.start], contextWindow })
+    }
   }
   return { sourceClauseCount: sourceClauses.length, groups: [...groups.values()] }
+}
+
+function nearThresholdCategoryIds(scores: Record<string, number>, config: RiskConfig) {
+  return config.labels
+    .map(({ id }) => id)
+    .filter((id) => scores[id]! < config.thresholds[id]! && config.thresholds[id]! - scores[id]! <= REVIEW_MARGIN)
 }
 
 /**
@@ -191,6 +210,30 @@ export async function analyzeWithBert(
   const config = riskConfig()
   const { sourceClauseCount, groups } = uniqueClauses(content, documentContexts)
   const modelScores = await scoreClausesWithBert(groups.map(({ clause }) => classificationText(clause)))
+  const contextImproved = new Set<number>()
+
+  // A sentence boundary can separate a risky term from the words that explain it
+  // (for example, "binding arbitration. You waive a jury trial."). Recheck only
+  // categories already close to their threshold with the adjacent sentences as
+  // context. Only those same categories may improve, preventing a risky neighbour
+  // from being incorrectly attributed to the current clause.
+  const uncertain = modelScores
+    .map((scores, index) => ({ index, categoryIds: nearThresholdCategoryIds(scores, config) }))
+    .filter(({ categoryIds }) => categoryIds.length > 0)
+  if (uncertain.length) {
+    const contextualScores = await scoreClausesWithBert(
+      uncertain.map(({ index }) => groups[index]!.contextWindow),
+    )
+    uncertain.forEach(({ index, categoryIds }, uncertainIndex) => {
+      for (const id of categoryIds) {
+        const contextualScore = contextualScores[uncertainIndex]![id]!
+        if (contextualScore > modelScores[index]![id]!) {
+          modelScores[index]![id] = contextualScore
+          contextImproved.add(index)
+        }
+      }
+    })
+  }
   const findings = groups.map(({ clause, occurrenceStarts }, index): RiskFinding => {
     const scores = modelScores[index]!
     const text = classificationText(clause)
@@ -206,7 +249,11 @@ export async function analyzeWithBert(
     const riskThresholds = { ...config.thresholds }
     const riskScores = { ...scores }
     const validIds = new Set(categories.map(({ id }) => id))
-    for (const id of Object.keys(riskScores)) if (!validIds.has(id)) riskScores[id] = 0
+    const semanticallyValidModelIds = new Set(validCategories(
+      config.labels.map(({ id, name }) => ({ id, name, score: scores[id]! })),
+      text,
+    ).map(({ id }) => id))
+    for (const id of Object.keys(riskScores)) if (!semanticallyValidModelIds.has(id)) riskScores[id] = 0
     for (const finding of ruleFindings.filter(({ id }) => validIds.has(id))) {
       riskScores[finding.id] = finding.score
       riskThresholds[finding.id] = 0
@@ -219,6 +266,7 @@ export async function analyzeWithBert(
     return {
       text: clause.text,
       context: clause.context,
+      contextualText: contextImproved.has(index) ? groups[index]!.contextWindow : undefined,
       start: clause.start,
       end: clause.end,
       occurrenceCount: occurrenceStarts.length,

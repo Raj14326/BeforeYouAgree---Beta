@@ -10,7 +10,7 @@
  */
 
 export const HIGH_CONFIDENCE_MARGIN = 0.15
-const REVIEW_MARGIN = 0.08
+export const REVIEW_MARGIN = 0.08
 
 export type RiskLevel = 'low' | 'medium' | 'high'
 

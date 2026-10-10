@@ -31,6 +31,7 @@ const displayedRiskLabel = computed(
   () =>
     `${displayedRiskLevel.value[0]!.toUpperCase()}${displayedRiskLevel.value.slice(1)}${riskPreferencesEnabled ? ' personalised' : ''} risk`,
 )
+const needsReview = computed(() => finding.predictedLabel === 'not_risky' && finding.reviewCategories.length > 0)
 
 const scoreLabel = computed(() => {
   const category = personalisedScore.value.primaryCategoryName
@@ -61,12 +62,17 @@ const emit = defineEmits<{
         <span v-if="finding.occurrenceCount > 1" class="badge text-bg-secondary">
           Appears {{ finding.occurrenceCount }} times
         </span>
+        <span v-if="needsReview" class="badge text-bg-warning">Needs review</span>
       </div>
 
       <p v-if="finding.context" class="clause-card-context mb-1">
         <span class="visually-hidden">Context: </span>{{ finding.context }}
       </p>
       <p class="clause-card-text mb-2">{{ finding.text }}</p>
+      <div v-if="finding.contextualText" class="alert alert-warning-subtle border-warning-subtle small py-2 px-3 mb-2">
+        <div class="fw-semibold mb-1">Context used for review</div>
+        <div>{{ finding.contextualText }}</div>
+      </div>
 
       <div class="d-flex flex-wrap align-items-center gap-3">
         <span
@@ -78,7 +84,7 @@ const emit = defineEmits<{
           {{ category.name }}
         </span>
         <button
-          v-if="finding.predictedLabel === 'risky'"
+          v-if="finding.predictedLabel === 'risky' || needsReview"
           type="button"
           class="btn btn-sm btn-link p-0"
           @click="emit('show-in-text')"

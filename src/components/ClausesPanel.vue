@@ -45,7 +45,9 @@ const visibleFindings = computed(() => {
     analysis?.findings
       .filter(
       (finding) =>
-        finding.predictedLabel === filter &&
+        (filter === 'risky'
+          ? finding.predictedLabel === 'risky' || finding.reviewCategories.length > 0
+          : finding.predictedLabel === 'not_risky' && finding.reviewCategories.length === 0) &&
         (!riskPreferencesEnabled || finding.categories.length === 0 ||
           finding.categories.some((category) => enabledCategoryIds.has(category.id))),
       )
@@ -74,7 +76,9 @@ const visibleFindings = computed(() => {
 })
 
 function labelCount(label: RiskFinding['predictedLabel']) {
-  return analysis?.findings.filter((finding) => finding.predictedLabel === label).length ?? 0
+  return analysis?.findings.filter((finding) => label === 'risky'
+    ? finding.predictedLabel === 'risky' || finding.reviewCategories.length > 0
+    : finding.predictedLabel === 'not_risky' && finding.reviewCategories.length === 0).length ?? 0
 }
 
 /** staggerChildren shrinks as the list grows so the full sequence stays under MAX_STAGGER_TOTAL_S. */
@@ -109,7 +113,7 @@ const containerVariants = computed(() => {
               :value="filter"
               @change="emit('update:filter', ($event.target as HTMLSelectElement).value as RiskFinding['predictedLabel'])"
             >
-              <option value="risky">Risky ({{ labelCount('risky') }})</option>
+              <option value="risky">Risky / needs review ({{ labelCount('risky') }})</option>
               <option value="not_risky">Not risky ({{ labelCount('not_risky') }})</option>
             </select>
           </div>
@@ -124,7 +128,7 @@ const containerVariants = computed(() => {
         />
 
         <div v-if="!visibleFindings.length" class="text-body-secondary small">
-          {{ filter === 'risky' ? 'No clauses were flagged as risky.' : 'Every analysed clause was flagged as risky.' }}
+          {{ filter === 'risky' ? 'No clauses were flagged as risky or needing review.' : 'Every analysed clause was flagged as risky or needing review.' }}
         </div>
         <motion.div
           v-else

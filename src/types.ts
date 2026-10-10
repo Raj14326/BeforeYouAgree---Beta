@@ -39,6 +39,7 @@ export type RiskLevel = 'low' | 'medium' | 'high'
 export type RiskFinding = {
   text: string
   context?: string
+  contextualText?: string
   start: number
   end: number
   occurrenceCount: number
