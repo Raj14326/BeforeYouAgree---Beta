@@ -29,5 +29,6 @@ describe('DocumentUploadPanel', () => {
     expect((submitButton.element as HTMLButtonElement).disabled).toBe(true)
     expect(wrapper.find('textarea').exists()).toBe(false)
     expect(wrapper.find('input[type="file"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('maximum 10 MB')
   })
 })

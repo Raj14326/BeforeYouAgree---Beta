@@ -5,7 +5,7 @@
  * never persisted, so a page refresh clears it.
  */
 import { computed, ref } from 'vue'
-import type { Analysis } from '@/types'
+import type { Analysis, DocumentContext } from '@/types'
 
 export type CompareSourceRef =
   | {
@@ -30,6 +30,8 @@ export type CompareEntry = {
   documentType: string
   /** Copied at add-time — the document session's analyses map is wiped/overwritten in place, so this must not alias into it. */
   analysis: Analysis
+  content: string
+  contexts?: DocumentContext[]
   addedAt: string
   sourceRef: CompareSourceRef
 }

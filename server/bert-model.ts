@@ -62,6 +62,8 @@ export type RiskFinding = {
   occurrenceCount: number
   occurrenceStarts: number[]
   categories: CategoryFinding[]
+  /** Raw model scores used to retrieve related clauses below the display threshold. */
+  categoryScores: Record<string, number>
   predictedLabel: 'not_risky' | 'risky'
   riskLevel: RiskLevel
   riskLevelMessage: string
@@ -222,6 +224,7 @@ export async function analyzeWithBert(
       occurrenceCount: occurrenceStarts.length,
       occurrenceStarts,
       categories,
+      categoryScores: scores,
       predictedLabel: categories.length ? 'risky' : 'not_risky',
       riskLevel,
       riskLevelMessage,

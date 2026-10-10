@@ -331,17 +331,18 @@ function catalogueSourceRef(termType: string, versionUrl?: string) {
 function addCurrentToCompare(termType: string) {
   const analysis = analyses.value[termType]
   const service = selectedService.value
-  if (!analysis || !service) return
+  const retrieval = retrievals.value[termType]
+  if (!analysis || !service || !retrieval) return
 
   if (isUpload.value) {
-    const content = retrievals.value[termType]?.content
-    if (content == null) return
     compareList.add({
       displayName: compareDisplayName(termType),
       serviceName: service.name,
       documentType: termType,
       analysis,
-      sourceRef: { kind: 'upload', name: service.name, content },
+      content: retrieval.content,
+      contexts: retrieval.contexts,
+      sourceRef: { kind: 'upload', name: service.name, content: retrieval.content },
     })
     addedTermTypes.value.add(termType)
     return
@@ -358,6 +359,8 @@ function addCurrentToCompare(termType: string) {
     serviceName: service.name,
     documentType: termType,
     analysis,
+    content: retrieval.content,
+    contexts: retrieval.contexts,
     sourceRef,
   })
   addedTermTypes.value.add(termType)
@@ -379,6 +382,8 @@ async function addVersionToCompare(termType: string) {
       serviceName: service.name,
       documentType: termType,
       analysis,
+      content: retrieval.content,
+      contexts: retrieval.contexts,
       sourceRef,
     })
     addedVersionKeys.value.add(`${termType}:${versionUrl}`)

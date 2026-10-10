@@ -11,6 +11,7 @@
  * Sits outside the Search → Document → Review flow (its own unconnected node
  * in FlowStepper); "See details" jumps back into Review for that entry.
  */
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import BrandAvatar from '@/components/BrandAvatar.vue'
@@ -27,10 +28,12 @@ import { reviewRoute, uploadReviewRoute } from '@/lib/flow-routes'
 
 const { entries, remove } = useCompareList()
 const { enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = useRiskPreferences()
-const { status, summary } = useCompareSummary(entries)
+const { status, summary, error: summaryError, generate: generateSummary } = useCompareSummary(entries)
 const { startUpload } = useDocumentSession()
 const { theme, toggleTheme } = useTheme()
 const router = useRouter()
+const compareCount = computed(() => entries.value.length)
+const hasPrivateDocument = computed(() => entries.value.some(({ sourceRef }) => sourceRef.kind === 'upload'))
 
 /**
  * Re-enter Review for a compare entry. A catalogue entry is just a route
@@ -64,7 +67,14 @@ function openEntry(entry: CompareEntry) {
     </div>
 
     <template v-else>
-      <ComparisonSummaryBanner :status="status" :summary="summary" />
+      <ComparisonSummaryBanner
+        :status="status"
+        :summary="summary"
+        :error="summaryError"
+        :document-count="compareCount"
+        :has-private-document="hasPrivateDocument"
+        @generate="generateSummary"
+      />
 
       <div class="row row-cols-1 row-cols-md-2 g-3 mb-4">
         <div v-for="entry in entries" :key="entry.id" class="col">

@@ -4,7 +4,7 @@
  * Policy pages from ToS;DR arrive as raw HTML fragments full of navigation,
  * scripts, and inline styling. The risk model only wants readable prose, so this
  * module strips the page down to text and then normalises the whitespace so the
- * clause splitter in `m006-model.ts` sees consistent paragraph breaks.
+ * clause analyser sees consistent paragraph breaks.
  */
 import { convert } from 'html-to-text'
 import type { DocumentContext } from './clauses.ts'

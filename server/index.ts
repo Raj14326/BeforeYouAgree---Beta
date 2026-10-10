@@ -25,7 +25,10 @@
  *  - `ALLOWED_ORIGINS`: comma-separated origins allowed for CORS (localhost is
  *    always allowed)
  *  - `GITHUB_TOKEN`: optional; raises the GitHub API rate limit for history
- *  - `LEO_MODEL_PATH`: optional; overrides the model file location
+ *  - `BERT_MODEL_DIR`: optional local LegalBERT model directory
+ *  - `BERT_RISK_CONFIG`: optional risk configuration file
+ *  - `MODEL_S3_BUCKET`/`MODEL_S3_PREFIX`: optional model download location
+ *  - `GROQ_API_KEY`: enables AI comparison summaries; `GROQ_MODEL` overrides its model
  */
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -34,6 +37,7 @@ import { htmlToStructuredText } from './html-to-plain-text.ts'
 import { analyzeWithBert } from './bert-model.ts'
 import { ensureModelAvailable } from './model-storage.ts'
 import type { DocumentContext } from './clauses.ts'
+import { compareWithGroq, type ComparisonDocument } from './comparison.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -67,6 +71,8 @@ const CONTENT_CACHE_TTL_MS = 60 * 60 * 1000
 // Per-IP rate limit: RATE_LIMIT requests per RATE_WINDOW_MS.
 const RATE_LIMIT = 60
 const RATE_WINDOW_MS = 60 * 1000
+const MAX_CONTENT_LENGTH = 500_000
+const MAX_JSON_BODY_BYTES = 3_100_000
 const ALLOWED_ORIGINS = new Set(
   (process.env.ALLOWED_ORIGINS || '')
     .split(',')
@@ -78,6 +84,7 @@ const ALLOWED_ORIGINS = new Set(
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>()
 /** Per-IP rate-limit counters, keyed by remote address. */
 const requestBuckets = new Map<string, RequestBucket>()
+const comparisonBuckets = new Map<string, RequestBucket>()
 
 /**
  * Main request handler and route table.
@@ -89,6 +96,9 @@ const requestBuckets = new Map<string, RequestBucket>()
  * response by the surrounding catch.
  */
 const server = http.createServer(async (request, response) => {
+  response.on('error', (error: NodeJS.ErrnoException) => {
+    if (!['ECONNABORTED', 'ECONNRESET', 'EPIPE'].includes(error.code ?? '')) console.error(error)
+  })
   setCorsHeaders(request, response)
   if (request.method === 'OPTIONS') return endEmpty(response, 204)
 
@@ -105,6 +115,11 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && url.pathname === '/api/analyze') {
       enforceRateLimit(request)
       return await analyzeDocument(request, response)
+    }
+    if (request.method === 'POST' && url.pathname === '/api/compare-summary') {
+      enforceRateLimit(request)
+      enforceComparisonRateLimit(request)
+      return await compareDocuments(request, response)
     }
     if (request.method !== 'GET') {
       return sendJson(response, 405, { error: 'Only GET requests are supported.' })
@@ -149,13 +164,92 @@ const server = http.createServer(async (request, response) => {
  * Rejects empty content (400) and content over 500 kB (413). No upstream calls.
  */
 async function analyzeDocument(request: IncomingMessage, response: ServerResponse) {
+  response.setHeader('Cache-Control', 'no-store')
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
+    return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
   const body = await readJsonBody(request)
   const content = typeof body.content === 'string' ? body.content.trim() : ''
   if (!content) return sendJson(response, 400, { error: 'Document content is required.' })
-  if (content.length > 500_000)
+  if (content.length > MAX_CONTENT_LENGTH)
     return sendJson(response, 413, { error: 'Document is too large to analyze.' })
   const contexts = validContexts(body.contexts, content.length)
   return sendJson(response, 200, await analyzeWithBert(content, contexts))
+}
+
+async function compareDocuments(request: IncomingMessage, response: ServerResponse) {
+  response.setHeader('Cache-Control', 'no-store')
+  const apiKey = process.env.GROQ_API_KEY
+  if (!apiKey) return sendJson(response, 503, { error: 'AI comparison is not configured yet.' })
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
+    return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
+  const body = await readJsonBody(request)
+  if (!Array.isArray(body.documents) || body.documents.length < 2 || body.documents.length > 4)
+    return sendJson(response, 400, { error: 'Choose between two and four documents to compare.' })
+  const documents = body.documents.map(validComparisonDocument)
+  if (new Set(documents.map(({ id }) => id)).size !== documents.length)
+    return sendJson(response, 400, { error: 'Comparison document IDs must be unique.' })
+  try {
+    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-20b'
+    return sendJson(response, 200, await compareWithGroq(documents, apiKey, model))
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'AI comparison failed.'
+    if (message === 'No risky clauses were available to compare.')
+      return sendJson(response, 400, { error: message })
+    throw serverError(message)
+  }
+}
+
+function validComparisonDocument(value: unknown): ComparisonDocument {
+  if (!value || typeof value !== 'object') throw clientError(400, 'Invalid comparison document.')
+  const document = value as Record<string, unknown>
+  const content = typeof document.content === 'string' ? document.content : ''
+  if (!content.trim() || content.length > MAX_CONTENT_LENGTH) throw clientError(413, 'Comparison document is too large.')
+  if (typeof document.id !== 'string' || !document.id || document.id.length > 200 ||
+    typeof document.name !== 'string' || !document.name.trim() || document.name.length > 200 ||
+    typeof document.documentType !== 'string' || document.documentType.length > 100 ||
+    !Array.isArray(document.findings) || document.findings.length > 5_000)
+    throw clientError(400, 'Invalid comparison document.')
+  const findings = document.findings.flatMap((value) => {
+    if (!value || typeof value !== 'object') return []
+    const finding = value as Record<string, unknown>
+    const start = Number(finding.start)
+    const end = Number(finding.end)
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > content.length ||
+      !Array.isArray(finding.categories)) return []
+    const categories = finding.categories.slice(0, 30).flatMap((value) => {
+      if (!value || typeof value !== 'object') return []
+      const category = value as Record<string, unknown>
+      return typeof category.id === 'string' && category.id.length <= 100 &&
+        typeof category.name === 'string' && category.name.length <= 150 &&
+        typeof category.score === 'number' && Number.isFinite(category.score) && category.score >= 0 && category.score <= 1
+        ? [{ id: category.id, name: category.name, score: category.score }]
+        : []
+    })
+    const categoryScores = finding.categoryScores && typeof finding.categoryScores === 'object'
+      ? Object.fromEntries(Object.entries(finding.categoryScores as Record<string, unknown>)
+        .slice(0, 30)
+        .filter((entry): entry is [string, number] =>
+          entry[0].length <= 100 && typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0 && entry[1] <= 1,
+        ))
+      : undefined
+    return [{
+      text: content.slice(start, end),
+      start,
+      end,
+      predictedLabel: finding.predictedLabel === 'risky' ? 'risky' : 'not_risky',
+      context: typeof finding.context === 'string' ? finding.context.slice(0, 300) : undefined,
+      categories,
+      categoryScores,
+    }]
+  })
+  return {
+    id: document.id,
+    name: document.name.trim(),
+    documentType: document.documentType,
+    content,
+    contexts: validContexts(document.contexts, content.length),
+    findings,
+  }
 }
 
 function validContexts(value: unknown, contentLength: number): DocumentContext[] {
@@ -170,18 +264,34 @@ function validContexts(value: unknown, contentLength: number): DocumentContext[]
 }
 
 /**
- * Read and JSON-parse a request body, aborting with 413 if it exceeds ~510 kB
+ * Read and JSON-parse a bounded request body. The byte allowance is larger
+ * than the text limit because JSON escaping can expand otherwise valid text.
  * and rejecting with 400 on invalid JSON. An empty body parses as `{}`.
  */
 function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
   return new Promise((resolveBody, reject) => {
+    const declaredLength = Number(request.headers['content-length'] || 0)
+    if (declaredLength > MAX_JSON_BODY_BYTES) {
+      request.resume()
+      reject(clientError(413, 'Request body is too large.'))
+      return
+    }
     let raw = ''
+    let bytes = 0
+    let rejected = false
     request.setEncoding('utf8')
     request.on('data', (chunk: string) => {
+      if (rejected) return
+      bytes += Buffer.byteLength(chunk)
+      if (bytes > MAX_JSON_BODY_BYTES) {
+        rejected = true
+        reject(clientError(413, 'Request body is too large.'))
+        return
+      }
       raw += chunk
-      if (raw.length > 510_000) request.destroy(clientError(413, 'Request body is too large.'))
     })
     request.on('end', () => {
+      if (rejected) return
       try {
         resolveBody(JSON.parse(raw || '{}') as Record<string, unknown>)
       } catch {
@@ -592,6 +702,18 @@ function enforceRateLimit(request: IncomingMessage) {
   if (bucket.count > RATE_LIMIT) throw clientError(429, 'Too many requests. Try again shortly.')
 }
 
+function enforceComparisonRateLimit(request: IncomingMessage) {
+  const key = request.socket.remoteAddress || 'local'
+  const now = Date.now()
+  const bucket = comparisonBuckets.get(key)
+  if (!bucket || bucket.resetAt <= now) {
+    comparisonBuckets.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
+    return
+  }
+  bucket.count += 1
+  if (bucket.count > 10) throw clientError(429, 'AI comparison limit reached. Try again later.')
+}
+
 /**
  * Set CORS and hardening headers on every response. The `Access-Control-Allow-
  * Origin` header is echoed back only for `localhost`/`127.0.0.1` or an origin
@@ -609,6 +731,8 @@ function setCorsHeaders(request: IncomingMessage, response: ServerResponse) {
   response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Referrer-Policy', 'no-referrer')
+  response.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
 }
 
 /** Parse an optional integer query param, returning `fallback` when absent and throwing 400 when out of `[minimum, maximum]`. */
@@ -632,7 +756,7 @@ function decodePathSegment(segment: string) {
 
 /** Write a JSON response with the right headers; no-op if the response is already sent. */
 function sendJson(response: ServerResponse, status: number, payload: unknown) {
-  if (response.writableEnded) return
+  if (response.writableEnded || response.destroyed || !response.writable) return
   const body = JSON.stringify(payload)
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
