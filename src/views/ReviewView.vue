@@ -165,7 +165,7 @@ async function showInText(finding: RiskFinding) {
           :title="isUpload ? 'Uploaded document' : session.documentLabel(termType)"
           :term="term"
           :retrieval="retrievals[termType]"
-          :has-analysis="Boolean(analysis)"
+          :analysis="analysis"
           :full-document-open="originalDocOpen"
           :is-loading="session.isInitialLoading(termType)"
           :is-analysing="Boolean(analysingTerm[termType])"
@@ -181,8 +181,8 @@ async function showInText(finding: RiskFinding) {
           @toggle-history="session.toggleHistory(termType)"
           @update:selected-version="selectedVersions[termType] = $event"
           @retrieve-version="retrieveSelectedVersion"
-          @add-to-compare="session.addCurrentToCompare(termType)"
-          @add-version-to-compare="session.addVersionToCompare(termType)"
+          @toggle-compare="session.toggleCurrentCompare(termType)"
+          @toggle-version-compare="session.toggleVersionCompare(termType)"
         >
           <ClausesPanel
             v-if="analysis"

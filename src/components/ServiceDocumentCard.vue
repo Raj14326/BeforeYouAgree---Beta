@@ -2,10 +2,11 @@
 /**
  * ServiceDocumentCard.vue: the document under review in ReviewView — its
  * title, retrieval status and actions (add to compare, full document,
- * version history) — with the analysis panels passed in through the default
- * slot below the toolbar.
+ * version history, take action) — with the analysis panels passed in through
+ * the default slot below the toolbar.
  */
-import type { Retrieval, Term, VersionOption } from '@/types'
+import type { Analysis, Retrieval, Term, VersionOption } from '@/types'
+import ActionGuide from './ActionGuide.vue'
 import BrandAvatar from './BrandAvatar.vue'
 
 const {
@@ -14,7 +15,7 @@ const {
   title,
   term,
   retrieval,
-  hasAnalysis,
+  analysis,
   fullDocumentOpen,
   isLoading,
   isAnalysing,
@@ -33,7 +34,7 @@ const {
   title: string
   term: Term
   retrieval: Retrieval | undefined
-  hasAnalysis: boolean
+  analysis: Analysis | undefined
   fullDocumentOpen: boolean
   isLoading: boolean
   isAnalysing: boolean
@@ -54,8 +55,10 @@ const emit = defineEmits<{
   'toggle-history': []
   'update:selectedVersion': [value: string]
   'retrieve-version': []
-  'add-to-compare': []
-  'add-version-to-compare': []
+  /** Add the loaded document to compare, or remove it if it's already there. */
+  'toggle-compare': []
+  /** Same, for the version selected in the History popover. */
+  'toggle-version-compare': []
 }>()
 
 /** Format an ISO timestamp for display in en-AU, or a fallback phrase when null. */
@@ -104,18 +107,6 @@ function originalDocumentId(value: string) {
 
       <div class="d-flex flex-wrap justify-content-end align-items-center gap-2 position-relative">
         <button
-          v-if="hasAnalysis"
-          type="button"
-          class="btn btn-sm"
-          :class="isCompared ? 'btn-secondary' : 'btn-outline-secondary'"
-          :disabled="isCompared"
-          @click="emit('add-to-compare')"
-        >
-          <i class="bi me-1" :class="isCompared ? 'bi-check-lg' : 'bi-ui-checks-grid'" aria-hidden="true"></i>
-          {{ isCompared ? 'Added to compare' : 'Add to compare' }}
-        </button>
-
-        <button
           v-if="retrieval"
           type="button"
           class="btn btn-sm btn-outline-secondary"
@@ -135,6 +126,32 @@ function originalDocumentId(value: string) {
           @click="emit('toggle-history')"
         >
           <i class="bi bi-clock-history me-1"></i>History
+        </button>
+
+        <!-- Next-step actions sit at the right end, compare last. -->
+        <ActionGuide v-if="analysis" :analysis="analysis" :service-name="serviceName" />
+
+        <button
+          v-if="analysis"
+          type="button"
+          class="btn btn-sm compare-button"
+          :class="isCompared ? 'compare-button--added' : 'btn-primary'"
+          :aria-pressed="isCompared"
+          :title="isCompared ? 'Click to remove from compare' : undefined"
+          @click="emit('toggle-compare')"
+        >
+          <template v-if="isCompared">
+            <!-- Hover/focus swaps "Added" for "Remove" so the click's effect is clear. -->
+            <span class="compare-button-added-label">
+              <i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>Added to compare
+            </span>
+            <span class="compare-button-remove-label" aria-hidden="true">
+              <i class="bi bi-x-circle-fill me-1"></i>Remove from compare
+            </span>
+          </template>
+          <template v-else>
+            <i class="bi bi-plus-circle-fill me-1" aria-hidden="true"></i>Add to compare
+          </template>
         </button>
 
         <div v-if="historyOpen" class="history-popover shadow">
@@ -163,11 +180,11 @@ function originalDocumentId(value: string) {
           <button
             type="button"
             class="btn btn-sm w-100 mt-2"
-            :class="isVersionCompared ? 'btn-secondary' : 'btn-outline-secondary'"
-            :disabled="!selectedVersion || isVersionCompared"
-            @click="emit('add-version-to-compare')"
+            :class="isVersionCompared ? 'btn-outline-danger' : 'btn-outline-secondary'"
+            :disabled="!selectedVersion"
+            @click="emit('toggle-version-compare')"
           >
-            {{ isVersionCompared ? 'Version added to compare' : 'Add this version to compare' }}
+            {{ isVersionCompared ? 'Remove this version from compare' : 'Add this version to compare' }}
           </button>
         </div>
       </div>
@@ -193,6 +210,48 @@ function originalDocumentId(value: string) {
 
 .document-card-details :deep(.original-document-panel) {
   padding: 0 1rem 1rem;
+}
+
+.compare-button {
+  font-weight: 600;
+}
+
+.compare-button.btn-primary {
+  box-shadow: 0 0.25rem 0.75rem rgba(var(--bs-primary-rgb), 0.3);
+}
+
+/* Added state: calm success tint; hover/focus turns it into a remove action. */
+.compare-button--added {
+  display: inline-grid;
+  border: 1px solid rgba(var(--bs-success-rgb), 0.5);
+  background-color: rgba(var(--bs-success-rgb), 0.12);
+  color: var(--bs-success-text-emphasis);
+}
+
+/* Both labels share one grid cell so the button keeps the wider label's width and doesn't jump on hover. */
+.compare-button--added > span {
+  grid-area: 1 / 1;
+}
+
+.compare-button-remove-label {
+  visibility: hidden;
+}
+
+.compare-button--added:hover,
+.compare-button--added:focus-visible {
+  border-color: rgba(var(--bs-danger-rgb), 0.55);
+  background-color: rgba(var(--bs-danger-rgb), 0.1);
+  color: var(--bs-danger-text-emphasis);
+}
+
+.compare-button--added:hover .compare-button-added-label,
+.compare-button--added:focus-visible .compare-button-added-label {
+  visibility: hidden;
+}
+
+.compare-button--added:hover .compare-button-remove-label,
+.compare-button--added:focus-visible .compare-button-remove-label {
+  visibility: visible;
 }
 
 .history-popover {

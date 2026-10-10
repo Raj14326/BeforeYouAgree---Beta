@@ -13,7 +13,7 @@
  * independently.
  */
 import { computed, ref } from 'vue'
-import { useCompareList } from '@/composables/useCompareList'
+import { catalogueCompareId, useCompareList } from '@/composables/useCompareList'
 import { apiUrl } from '@/lib/api'
 import { fetchAnalysis, fetchRetrieval } from '@/lib/document-fetch'
 import type { Analysis, Declaration, Retrieval, RiskFinding, Service, Term, VersionOption } from '@/types'
@@ -43,16 +43,13 @@ const selectedVersions = ref<Record<string, string>>({})
 /** `null` = latest; a URL = which archived version is loaded (or loading) for that term. */
 const loadedVersionUrl = ref<Record<string, string | null>>({})
 /**
- * Which "Add to compare" buttons have already been clicked for their
- * current content, for button feedback. This is separate from
- * compareList's own dedup (which only has a stable identity for catalogue
- * documents) so an upload — which the store always lets through as a new
- * entry — still gets "Added to compare" feedback instead of silently doing
- * nothing on repeat clicks.
+ * Compare-list id of the current upload, once added. Catalogue documents
+ * need no bookkeeping (their id is derived from service+type+version), but
+ * an upload's id is random per add, so it's remembered here. Whether a
+ * document counts as "added" is always checked against the compare list
+ * itself, so removing it on the Compare page frees the button again.
  */
-const addedTermTypes = ref<Set<string>>(new Set())
-/** Same idea as {@link addedTermTypes}, keyed by `${termType}:${versionUrl}` for the History popover's own button. */
-const addedVersionKeys = ref<Set<string>>(new Set())
+const uploadCompareId = ref<string | null>(null)
 const loadingHistoryTerm = ref<string | null>(null)
 
 /**
@@ -86,8 +83,7 @@ function resetSession() {
   versions.value = {}
   selectedVersions.value = {}
   loadedVersionUrl.value = {}
-  addedTermTypes.value = new Set()
-  addedVersionKeys.value = new Set()
+  uploadCompareId.value = null
   activeTerm.value = null
 }
 
@@ -239,7 +235,6 @@ async function analyseTerm(termType: string) {
 /** Retrieve a document (optionally a specific archived version) then immediately analyse it. */
 async function autoLoadAndAnalyse(termType: string, versionUrl?: string) {
   loadedVersionUrl.value[termType] = versionUrl ?? null
-  addedTermTypes.value.delete(termType)
   await retrieveTerm(termType, versionUrl)
   if (retrievals.value[termType]) await analyseTerm(termType)
 }
@@ -327,6 +322,34 @@ function catalogueSourceRef(termType: string, versionUrl?: string) {
   }
 }
 
+/** Compare-list id for whatever's currently loaded for this document, or `null` if it has none yet (an upload never added). */
+function currentCompareId(termType: string) {
+  if (isUpload.value) return uploadCompareId.value
+  const sourceRef = catalogueSourceRef(termType, loadedVersionUrl.value[termType] ?? undefined)
+  return sourceRef ? catalogueCompareId(sourceRef) : null
+}
+
+/** Compare-list id for the archived version selected in the History popover. */
+function selectedVersionCompareId(termType: string) {
+  const versionUrl = selectedVersions.value[termType]
+  const sourceRef = versionUrl ? catalogueSourceRef(termType, versionUrl) : null
+  return sourceRef ? catalogueCompareId(sourceRef) : null
+}
+
+/** "Add to compare" button: adds what's loaded, or removes it if it's already in the compare list. */
+function toggleCurrentCompare(termType: string) {
+  const id = currentCompareId(termType)
+  if (id && compareList.has(id)) compareList.remove(id)
+  else addCurrentToCompare(termType)
+}
+
+/** History popover's button: adds the selected version, or removes it if it's already in the compare list. */
+async function toggleVersionCompare(termType: string) {
+  const id = selectedVersionCompareId(termType)
+  if (id && compareList.has(id)) compareList.remove(id)
+  else await addVersionToCompare(termType)
+}
+
 /** Add whatever's currently loaded for this document — the active version for a catalogue document, or the upload's own text. */
 function addCurrentToCompare(termType: string) {
   const analysis = analyses.value[termType]
@@ -335,7 +358,7 @@ function addCurrentToCompare(termType: string) {
   if (!analysis || !service || !retrieval) return
 
   if (isUpload.value) {
-    compareList.add({
+    uploadCompareId.value = compareList.add({
       displayName: compareDisplayName(termType),
       serviceName: service.name,
       documentType: termType,
@@ -344,7 +367,6 @@ function addCurrentToCompare(termType: string) {
       contexts: retrieval.contexts,
       sourceRef: { kind: 'upload', name: service.name, content: retrieval.content },
     })
-    addedTermTypes.value.add(termType)
     return
   }
 
@@ -363,7 +385,6 @@ function addCurrentToCompare(termType: string) {
     contexts: retrieval.contexts,
     sourceRef,
   })
-  addedTermTypes.value.add(termType)
 }
 
 /** Add the archived version currently selected in the History popover, without disturbing the active document. */
@@ -386,23 +407,22 @@ async function addVersionToCompare(termType: string) {
       contexts: retrieval.contexts,
       sourceRef,
     })
-    addedVersionKeys.value.add(`${termType}:${versionUrl}`)
   } catch (cause) {
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'That version could not be added to compare.'
   }
 }
 
-/** Whether the "Add to compare" button for this document's current content has already been clicked. */
+/** Whether this document's currently loaded content is in the compare list right now. */
 function isCurrentCompared(termType: string) {
-  return addedTermTypes.value.has(termType)
+  const id = currentCompareId(termType)
+  return id !== null && compareList.has(id)
 }
 
-/** Whether the History popover's "Add this version" button for the selected version has already been clicked. */
+/** Whether the version selected in the History popover is in the compare list right now. */
 function isSelectedVersionCompared(termType: string) {
-  const versionUrl = selectedVersions.value[termType]
-  if (!versionUrl) return false
-  return addedVersionKeys.value.has(`${termType}:${versionUrl}`)
+  const id = selectedVersionCompareId(termType)
+  return id !== null && compareList.has(id)
 }
 
 export function useDocumentSession() {
@@ -432,8 +452,8 @@ export function useDocumentSession() {
     isInitialLoading,
     toggleHistory,
     documentLabel,
-    addCurrentToCompare,
-    addVersionToCompare,
+    toggleCurrentCompare,
+    toggleVersionCompare,
     isCurrentCompared,
     isSelectedVersionCompared,
   }

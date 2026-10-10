@@ -9,51 +9,12 @@
  * into local draggable lists on setup, so remounting keeps it in step with
  * changes made from another view's header.
  */
-import { ref } from 'vue'
 import RiskPreferencePanel from '@/components/RiskPreferencePanel.vue'
+import { useModalDialog } from '@/composables/useModalDialog'
 import { useRiskPreferences } from '@/composables/useRiskPreferences'
 
 const { enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = useRiskPreferences()
-
-const dialog = ref<HTMLDialogElement | null>(null)
-const isOpen = ref(false)
-let pointerStartedOutside = false
-
-function openSettings() {
-  if (!dialog.value) return
-  isOpen.value = true
-  dialog.value.showModal()
-}
-
-function closeSettings() {
-  dialog.value?.close()
-}
-
-function resetSettings() {
-  isOpen.value = false
-  pointerStartedOutside = false
-}
-
-function isOutsidePanel(event: MouseEvent) {
-  const bounds = dialog.value?.getBoundingClientRect()
-  if (!bounds) return false
-  return (
-    event.clientX < bounds.left ||
-    event.clientX > bounds.right ||
-    event.clientY < bounds.top ||
-    event.clientY > bounds.bottom
-  )
-}
-
-function trackPointerStart(event: PointerEvent) {
-  pointerStartedOutside = isOutsidePanel(event)
-}
-
-function dismissBackdrop(event: MouseEvent) {
-  // A drag (e.g. reordering a preference) that begins inside the panel should not dismiss it.
-  if (pointerStartedOutside && isOutsidePanel(event)) closeSettings()
-  pointerStartedOutside = false
-}
+const { dialog, isOpen, open, close, onClose, onPointerdown, onClick } = useModalDialog()
 </script>
 
 <template>
@@ -63,7 +24,7 @@ function dismissBackdrop(event: MouseEvent) {
     aria-haspopup="dialog"
     aria-controls="risk-preference-settings"
     :aria-expanded="isOpen"
-    @click="openSettings"
+    @click="open"
   >
     <i class="bi bi-sliders" aria-hidden="true"></i>
     <span class="d-none d-sm-inline">Preferences</span>
@@ -80,9 +41,9 @@ function dismissBackdrop(event: MouseEvent) {
       ref="dialog"
       class="risk-settings"
       aria-labelledby="risk-preference-settings-title"
-      @close="resetSettings"
-      @pointerdown="trackPointerStart"
-      @click="dismissBackdrop"
+      @close="onClose"
+      @pointerdown="onPointerdown"
+      @click="onClick"
     >
       <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
         <div>
@@ -95,7 +56,7 @@ function dismissBackdrop(event: MouseEvent) {
           class="btn btn-sm btn-outline-secondary settings-close"
           aria-label="Close risk preferences"
           autofocus
-          @click="closeSettings"
+          @click="close"
         >
           <span aria-hidden="true">&times;</span>
         </button>
@@ -111,7 +72,7 @@ function dismissBackdrop(event: MouseEvent) {
 
       <div class="settings-footer">
         <span class="small text-body-secondary">Changes apply immediately.</span>
-        <button type="button" class="btn btn-primary" @click="closeSettings">Done</button>
+        <button type="button" class="btn btn-primary" @click="close">Done</button>
       </div>
     </dialog>
   </Teleport>
