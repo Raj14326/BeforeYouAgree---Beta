@@ -3,11 +3,7 @@
 .venv
 node_modules
 dist
-docs
-Security Aspects
-synthetic.csv
 ml/.venv
 ml/experiments
-ml_service
 test-results
 playwright-report
