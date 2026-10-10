@@ -157,38 +157,21 @@ function reviewUpload(document: { name: string; content: string }) {
 
   <main>
     <!-- Hero -->
-    <section class="container app-shell py-5 my-md-4">
+    <section class="container app-shell pt-5 pb-4 pb-md-5 mt-md-4">
       <div class="hero row align-items-center gy-4">
         <div class="col-lg-7">
           <p class="eyebrow mb-3">TERMS OF SERVICE &amp; PRIVACY POLICIES, DECODED</p>
           <h1 class="display-6 fw-bold mb-3">
             Before you tap "I agree"...
           </h1>
-          <p class="fs-5 text-body-secondary mb-4">
-            Search a service, or paste in your own document, and see the clauses worth a second look.
-          </p>
-
-          <div id="start" class="start-card">
-            <div class="btn-group mb-3" role="group" aria-label="Choose how to find a document">
-              <button type="button" class="btn"
-                :class="searchMode === 'catalogue' ? 'btn-primary' : 'btn-outline-secondary'"
-                :aria-pressed="searchMode === 'catalogue'" @click="searchMode = 'catalogue'">
-                <i class="bi bi-search me-1" aria-hidden="true"></i>Search a service
-              </button>
-              <button type="button" class="btn"
-                :class="searchMode === 'upload' ? 'btn-primary' : 'btn-outline-secondary'"
-                :aria-pressed="searchMode === 'upload'" @click="searchMode = 'upload'">
-                <i class="bi bi-file-earmark-arrow-up me-1" aria-hidden="true"></i>Upload your own
-              </button>
+          <div class="row g-3 stats-row mb-3">
+            <div v-for="stat in STATS" :key="stat.label" class="col-4">
+              <p class="stat-value mb-1">{{ stat.value }}</p>
+              <p class="stat-label mb-0">{{ stat.label }}</p>
             </div>
-            <SearchBar v-if="searchMode === 'catalogue'" :services="services" :is-catalogue-loading="isCatalogueLoading"
-              :is-service-loading="false" :catalogue-is-fallback="catalogueIsFallback" @select="openService" />
-            <DocumentUploadPanel v-else @submit="reviewUpload" />
           </div>
-
-          <p class="small text-body-secondary mt-4 mb-0">
-            An automated prediction to help you focus your reading, not legal advice.
-            <a href="#how-it-works" class="ms-1">See how it works</a>
+          <p class="stat-source small text-body-secondary mb-0">
+            Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
           </p>
         </div>
         <div class="col-lg-5">
@@ -209,17 +192,43 @@ function reviewUpload(document: { name: string; content: string }) {
       </div>
     </section>
 
-    <!-- Stats -->
-    <section class="container app-shell pb-4">
-      <div class="row g-3 stats-row">
-        <div v-for="stat in STATS" :key="stat.label" class="col-4">
-          <p class="stat-value mb-1">{{ stat.value }}</p>
-          <p class="stat-label mb-0">{{ stat.label }}</p>
+    <!-- Start: search a service or upload your own (step 1 of the flow) -->
+    <section id="start" class="start-band" aria-labelledby="start-heading">
+      <div class="container app-shell py-5">
+        <div class="start-inner mx-auto">
+          <div class="text-center mb-4">
+            <p class="eyebrow mb-2">START HERE</p>
+            <h2 id="start-heading" class="h2 fw-bold mb-2">What are you about to agree to?</h2>
+            <p class="fs-5 text-body-secondary mb-0">
+              Search a service, or paste in your own document, and see the clauses worth a second look.
+            </p>
+          </div>
+
+          <div class="d-flex justify-content-center mb-3">
+            <div class="btn-group" role="group" aria-label="Choose how to find a document">
+              <button type="button" class="btn"
+                :class="searchMode === 'catalogue' ? 'btn-primary' : 'btn-outline-secondary'"
+                :aria-pressed="searchMode === 'catalogue'" @click="searchMode = 'catalogue'">
+                <i class="bi bi-search me-1" aria-hidden="true"></i>Search a service
+              </button>
+              <button type="button" class="btn"
+                :class="searchMode === 'upload' ? 'btn-primary' : 'btn-outline-secondary'"
+                :aria-pressed="searchMode === 'upload'" @click="searchMode = 'upload'">
+                <i class="bi bi-file-earmark-arrow-up me-1" aria-hidden="true"></i>Upload your own
+              </button>
+            </div>
+          </div>
+
+          <SearchBar v-if="searchMode === 'catalogue'" :services="services" :is-catalogue-loading="isCatalogueLoading"
+            :is-service-loading="false" :catalogue-is-fallback="catalogueIsFallback" @select="openService" />
+          <DocumentUploadPanel v-else @submit="reviewUpload" />
+
+          <p class="small text-body-secondary text-center mt-4 mb-0">
+            An automated prediction to help you focus your reading, not legal advice.
+            <a href="#how-it-works" class="ms-1">See how it works</a>
+          </p>
         </div>
       </div>
-      <p class="stat-source small text-body-secondary mt-3 mb-0">
-        Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
-      </p>
     </section>
 
     <!-- How it works -->
@@ -296,7 +305,24 @@ function reviewUpload(document: { name: string; content: string }) {
 }
 
 #start {
-  scroll-margin-top: 6rem;
+  scroll-margin-top: 4.5rem;
+}
+
+/* Full-bleed tinted band so the search stands out as the page's main action. */
+.start-band {
+  border-block: 1px solid rgba(var(--bs-primary-rgb), 0.15);
+  background:
+    radial-gradient(ellipse at top, rgba(var(--bs-primary-rgb), 0.14), transparent 70%),
+    rgba(var(--bs-primary-rgb), 0.04);
+}
+
+.start-inner {
+  max-width: 820px;
+}
+
+.start-band :deep(.search-bar),
+.start-band :deep(.upload-panel) {
+  box-shadow: 0 0.75rem 2rem rgba(var(--bs-primary-rgb), 0.12) !important;
 }
 
 .hero-card {
