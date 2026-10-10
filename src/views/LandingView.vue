@@ -1,16 +1,27 @@
 <script setup lang="ts">
 /**
- * LandingView.vue: marketing entry point at `/`. Introduces the product and
- * hands off to the tool at `/app` (see AppView.vue). No API calls — this
- * page is static copy plus a theme toggle, so it stays fast and always
- * renders even if the backend is unreachable.
+ * LandingView.vue: entry point at `/` and step 1 (Search) of the flow.
+ * Introduces the product and hosts the start card (`#start`): search for a
+ * service (→ DocumentSelectView) or paste/upload your own document (→
+ * straight to ReviewView). The rest of the page is static copy, so it still
+ * renders if the backend is unreachable — search then uses the offline list.
+ *
+ * `?mode=upload` opens the start card on the upload tab (FlowBar's "Upload
+ * your own" link lands here).
  */
 
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { motion } from 'motion-v'
+import { useRoute, useRouter } from 'vue-router'
 import logoUrl from '@/assets/BYA_logo.png'
 import ClauseCard from '@/components/ClauseCard.vue'
-import type { RiskFinding } from '@/types'
+import DocumentUploadPanel from '@/components/DocumentUploadPanel.vue'
+import SearchBar from '@/components/SearchBar.vue'
+import { useDocumentSession } from '@/composables/useDocumentSession'
+import { useServiceCatalogue } from '@/composables/useServiceCatalogue'
+import { useTheme } from '@/composables/useTheme'
+import { serviceRoute, uploadReviewRoute } from '@/lib/flow-routes'
+import type { RiskFinding, Service } from '@/types'
 
 const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 }
 
@@ -83,7 +94,7 @@ const EXAMPLE_ENABLED_CATEGORY_IDS = new Set(['unilateral_termination'])
 const STEPS = [
   {
     title: 'Search for a service',
-    description: 'Enter a name like Spotify or Google and pick it from the list.',
+    description: 'Enter a name like Spotify or Google, or paste in a document of your own.',
   },
   {
     title: 'Retrieve a document',
@@ -95,18 +106,31 @@ const STEPS = [
   },
 ]
 
-const theme = ref<'light' | 'dark'>(
-  document.documentElement.getAttribute('data-bs-theme') === 'dark' ? 'dark' : 'light',
+const route = useRoute()
+const router = useRouter()
+const { theme, toggleTheme } = useTheme()
+const { services, isCatalogueLoading, catalogueIsFallback, ensureCatalogueLoaded } = useServiceCatalogue()
+const { startUpload } = useDocumentSession()
+void ensureCatalogueLoaded()
+
+/** Whether the start card shows the service search or the upload-your-own form. */
+const searchMode = ref<'catalogue' | 'upload'>('catalogue')
+watch(
+  () => route.query.mode,
+  (mode) => {
+    searchMode.value = mode === 'upload' ? 'upload' : 'catalogue'
+  },
+  { immediate: true },
 )
 
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
-  document.documentElement.setAttribute('data-bs-theme', theme.value)
-  try {
-    localStorage.setItem('bya-theme', theme.value)
-  } catch {
-    // Storage can be unavailable (private mode); the toggle still applies this session.
-  }
+function openService(service: Service) {
+  void router.push(serviceRoute(service.path, service.name))
+}
+
+/** An upload has nothing to choose between, so it skips the Document step and goes straight to Review. */
+function reviewUpload(document: { name: string; content: string }) {
+  startUpload(document)
+  void router.push(uploadReviewRoute)
 }
 </script>
 
@@ -123,9 +147,10 @@ function toggleTheme() {
           :aria-label="theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'" @click="toggleTheme">
           <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-stars-fill'"></i>
         </motion.button>
-        <motion.button as-child :while-hover="{ scale: 1.05 }" :while-press="{ scale: 0.95 }" :transition="BUTTON_SPRING">
-          <RouterLink to="/app" class="btn btn-sm btn-primary">Open the app</RouterLink>
-        </motion.button>
+        <motion.a href="#start" class="btn btn-sm btn-primary" :while-hover="{ scale: 1.05 }"
+          :while-press="{ scale: 0.95 }" :transition="BUTTON_SPRING">
+          Get started
+        </motion.a>
       </div>
     </div>
   </header>
@@ -139,29 +164,31 @@ function toggleTheme() {
           <h1 class="display-6 fw-bold mb-3">
             Before you tap "I agree"...
           </h1>
-          <div class="row g-3 stats-row mb-4">
-            <div v-for="stat in STATS" :key="stat.label" class="col-4">
-              <p class="stat-value mb-1">{{ stat.value }}</p>
-              <p class="stat-label mb-0">{{ stat.label }}</p>
-            </div>
-          </div>
-          <p class="stat-source small text-body-secondary mb-4">
-            Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
+          <p class="fs-5 text-body-secondary mb-4">
+            Search a service, or paste in your own document, and see the clauses worth a second look.
           </p>
-          <div class="d-flex flex-wrap gap-2">
-            <motion.button as-child :while-hover="{ scale: 1.04, y: -2 }" :while-press="{ scale: 0.97, y: 0 }"
-              :transition="BUTTON_SPRING">
-              <RouterLink to="/app" class="btn btn-primary btn-lg">
-                Analyse a service <i class="bi bi-arrow-right ms-1"></i>
-              </RouterLink>
-            </motion.button>
-            <motion.a href="#how-it-works" class="btn btn-outline-secondary btn-lg"
-              :while-hover="{ scale: 1.04, y: -2 }" :while-press="{ scale: 0.97, y: 0 }" :transition="BUTTON_SPRING">
-              See how it works
-            </motion.a>
+
+          <div id="start" class="start-card">
+            <div class="btn-group mb-3" role="group" aria-label="Choose how to find a document">
+              <button type="button" class="btn"
+                :class="searchMode === 'catalogue' ? 'btn-primary' : 'btn-outline-secondary'"
+                :aria-pressed="searchMode === 'catalogue'" @click="searchMode = 'catalogue'">
+                <i class="bi bi-search me-1" aria-hidden="true"></i>Search a service
+              </button>
+              <button type="button" class="btn"
+                :class="searchMode === 'upload' ? 'btn-primary' : 'btn-outline-secondary'"
+                :aria-pressed="searchMode === 'upload'" @click="searchMode = 'upload'">
+                <i class="bi bi-file-earmark-arrow-up me-1" aria-hidden="true"></i>Upload your own
+              </button>
+            </div>
+            <SearchBar v-if="searchMode === 'catalogue'" :services="services" :is-catalogue-loading="isCatalogueLoading"
+              :is-service-loading="false" :catalogue-is-fallback="catalogueIsFallback" @select="openService" />
+            <DocumentUploadPanel v-else @submit="reviewUpload" />
           </div>
+
           <p class="small text-body-secondary mt-4 mb-0">
             An automated prediction to help you focus your reading, not legal advice.
+            <a href="#how-it-works" class="ms-1">See how it works</a>
           </p>
         </div>
         <div class="col-lg-5">
@@ -180,6 +207,19 @@ function toggleTheme() {
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- Stats -->
+    <section class="container app-shell pb-4">
+      <div class="row g-3 stats-row">
+        <div v-for="stat in STATS" :key="stat.label" class="col-4">
+          <p class="stat-value mb-1">{{ stat.value }}</p>
+          <p class="stat-label mb-0">{{ stat.label }}</p>
+        </div>
+      </div>
+      <p class="stat-source small text-body-secondary mt-3 mb-0">
+        Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
+      </p>
     </section>
 
     <!-- How it works -->
@@ -237,12 +277,10 @@ function toggleTheme() {
           Search any service and get a plain-language breakdown in seconds.
         </p>
         <div>
-          <motion.button as-child :while-hover="{ scale: 1.04, y: -2 }" :while-press="{ scale: 0.97, y: 0 }"
-            :transition="BUTTON_SPRING">
-            <RouterLink to="/app" class="btn btn-primary btn-lg">
-              Analyse a service <i class="bi bi-arrow-right ms-1"></i>
-            </RouterLink>
-          </motion.button>
+          <motion.a href="#start" class="btn btn-primary btn-lg" :while-hover="{ scale: 1.04, y: -2 }"
+            :while-press="{ scale: 0.97, y: 0 }" :transition="BUTTON_SPRING">
+            Search a service <i class="bi bi-arrow-up ms-1"></i>
+          </motion.a>
         </div>
       </div>
     </section>
@@ -255,6 +293,10 @@ function toggleTheme() {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.12em;
+}
+
+#start {
+  scroll-margin-top: 6rem;
 }
 
 .hero-card {

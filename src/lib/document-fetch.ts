@@ -1,7 +1,7 @@
 /**
- * Fetch+parse bodies extracted from AppView.vue's retrieveTerm/analyseTerm
+ * Fetch+parse bodies behind useDocumentSession.ts's retrieveTerm/analyseTerm
  * so a caller can get a Retrieval/Analysis back as a plain return value
- * instead of having it assigned into AppView.vue's live `retrievals`/
+ * instead of having it assigned into the session's live `retrievals`/
  * `analyses` maps. Needed so "add this archived version to compare" can
  * fetch+analyse a document without disturbing whatever's currently active
  * on the page. retrieveTerm/analyseTerm keep their existing signatures and
