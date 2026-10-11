@@ -35,7 +35,7 @@ const SPOTLIGHT_SPRING = { type: 'spring', stiffness: 300, damping: 30 } as cons
 /** Distinct per variant, so the label targets the right input if both ever render on one page. */
 const inputId = compact ? 'service-compact' : 'service'
 const query = ref('')
-/** True from focus until blur — doubles as the autocomplete-open flag and the Spotlight-mode flag. */
+/** True from focus until blur- doubles as the autocomplete-open flag and the Spotlight-mode flag. */
 const isOpen = ref(false)
 const activeIndex = ref(-1)
 const error = ref('')

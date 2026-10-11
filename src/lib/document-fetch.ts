@@ -5,7 +5,7 @@
  * `analyses` maps. Needed so "add this archived version to compare" can
  * fetch+analyse a document without disturbing whatever's currently active
  * on the page. retrieveTerm/analyseTerm keep their existing signatures and
- * side effects — they just call these internally now.
+ * side effects- they just call these internally now.
  */
 import { apiUrl } from '@/lib/api'
 import type { Analysis, Retrieval } from '@/types'

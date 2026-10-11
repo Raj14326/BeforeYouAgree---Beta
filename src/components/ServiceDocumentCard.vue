@@ -1,8 +1,8 @@
 <script setup lang="ts">
 /**
- * ServiceDocumentCard.vue: the document under review in ReviewView — its
+ * ServiceDocumentCard.vue: the document under review in ReviewView- its
  * title, retrieval status and actions (add to compare, full document,
- * version history, take action) — with the analysis panels passed in through
+ * version history, take action)- with the analysis panels passed in through
  * the default slot below the toolbar.
  */
 import type { Analysis, Retrieval, Term, VersionOption } from '@/types'

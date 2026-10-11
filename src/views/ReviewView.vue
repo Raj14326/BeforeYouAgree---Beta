@@ -1,16 +1,16 @@
 <script setup lang="ts">
 /**
- * ReviewView.vue: step 3 of the flow — the full analysis of one document:
+ * ReviewView.vue: step 3 of the flow- the full analysis of one document:
  * nutrition card, flagged clauses, original text with highlights, version
  * history, add-to-compare. Risk preferences (filter/order of the clause list)
  * are set globally from the header's RiskPreferenceSettings dialog.
  *
  * Two routes land here:
  *  - `/service/:servicePath/:termType` (optional `?version=` for an archived
- *    version) — a catalogue document, loaded from the route so refreshes and
+ *    version)- a catalogue document, loaded from the route so refreshes and
  *    shared links work; already-analysed documents come from the session
  *    cache without refetching.
- *  - `/review/upload` — the user's own pasted/uploaded document. Its text
+ *  - `/review/upload`- the user's own pasted/uploaded document. Its text
  *    only lives in the session, so a cold load sends the user back to the
  *    landing page's upload form.
  */

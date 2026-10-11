@@ -4,7 +4,7 @@
  * Introduces the product and hosts the start card (`#start`): search for a
  * service (→ DocumentSelectView) or paste/upload your own document (→
  * straight to ReviewView). The rest of the page is static copy, so it still
- * renders if the backend is unreachable — search then uses the offline list.
+ * renders if the backend is unreachable- search then uses the offline list.
  *
  * `?mode=upload` opens the start card on the upload tab (FlowBar's "Upload
  * your own" link lands here).

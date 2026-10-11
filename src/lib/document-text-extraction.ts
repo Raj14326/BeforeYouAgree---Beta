@@ -2,7 +2,7 @@
  * Extract plain text from a user-provided file (`.txt`, `.pdf`, `.docx`) in
  * the browser, so an uploaded document can be sent to `POST /api/analyze`
  * exactly like catalogue-retrieved text. Each file type is parsed by a
- * client-side library — the server stays dependency-free (see
+ * client-side library- the server stays dependency-free (see
  * `server/index.ts`'s header comment).
  */
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist'

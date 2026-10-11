@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * FlowBar.vue: the strip at the top of every view after the landing page —
+ * FlowBar.vue: the strip at the top of every view after the landing page-
  * the step indicator (FlowStepper) and a compact search bar, so the user can
  * jump to another service (e.g. to add more documents to Compare) without
  * going back to the landing page. An "Upload your own" link goes back to the

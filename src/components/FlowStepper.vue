@@ -2,7 +2,7 @@
 /**
  * FlowStepper.vue: clickable step indicator for Search → Document → Review,
  * plus a separate (unconnected) Compare node, since comparing isn't a step
- * in the linear flow — documents can be added to it from any review.
+ * in the linear flow- documents can be added to it from any review.
  *
  * The current step comes from the route; each other step links back to
  * wherever the user last was in it (the current service's document list,

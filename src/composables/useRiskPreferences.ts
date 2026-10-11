@@ -1,6 +1,6 @@
 /**
  * Risk-preference state (category filter/order/toggle), shared so
- * CompareView.vue — a sibling route, not a child — can score compared
+ * CompareView.vue- a sibling route, not a child- can score compared
  * documents with the same live preferences the user sees in the header's
  * RiskPreferenceSettings dialog. Module-scope singleton, same reasoning as
  * useCompareList.ts: it must survive route changes within the SPA session.

@@ -5,7 +5,7 @@
  * as a `.txt`/`.pdf`/`.docx` file.
  *
  * Owns its own input state and client-side text extraction (see
- * `@/lib/document-text-extraction`); it never calls `/api/analyze` itself —
+ * `@/lib/document-text-extraction`); it never calls `/api/analyze` itself-
  * once usable text is in hand it just emits `submit`, and the parent runs it
  * through the same analysis path as a catalogue document.
  */

@@ -3,7 +3,7 @@
  * DocumentSelectView.vue: step 2 of the flow, at `/service/:servicePath`.
  * A brand banner for the chosen service, then one card per document type
  * (Terms, Privacy, …); choosing one opens it in ReviewView. Nothing is
- * retrieved or analysed here — that only happens for the document the user
+ * retrieved or analysed here- that only happens for the document the user
  * actually opens.
  *
  * The service comes from the route, so a refresh or shared link reloads it;

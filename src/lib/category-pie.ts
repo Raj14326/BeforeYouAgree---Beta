@@ -1,14 +1,14 @@
 // Geometry for the Privacy Nutrition Card's donut chart: turns scorecard
 // rows into SVG stroke-dasharray/dashoffset pairs for a ring of <circle>
 // segments. Colour is left to the caller (reuse categoryColor(id), same as
-// the scorecard table's dots) — this module only computes layout.
+// the scorecard table's dots)- this module only computes layout.
 import type { CategoryPresence } from '@/lib/category-aggregation'
 
 /** Radius (SVG user units) the donut ring is drawn at; callers must use a matching viewBox. */
 export const PIE_RADIUS = 48
 export const PIE_CIRCUMFERENCE = 2 * Math.PI * PIE_RADIUS
 
-/** Gap (SVG user units) left between adjacent segments — the design system's 2px surface-gap spacer. */
+/** Gap (SVG user units) left between adjacent segments- the design system's 2px surface-gap spacer. */
 const SEGMENT_GAP = 2
 
 export type PieSlice = {

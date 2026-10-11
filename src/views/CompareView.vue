@@ -3,7 +3,7 @@
  * CompareView.vue: side-by-side comparison of every document added via an
  * "Add to compare" button elsewhere in the app (ServiceDocumentCard.vue).
  * Each entry renders as a trimmed overview card (score/severity/summary
- * only — see DocumentRiskOverview.vue); the full category breakdown is one
+ * only- see DocumentRiskOverview.vue); the full category breakdown is one
  * shared table below all the cards (CategoryComparisonTable.vue) rather
  * than repeated per card. A placeholder banner above the cards is reserved
  * for a teammate's in-progress LLM risk/safety summary (useCompareSummary.ts).
@@ -89,7 +89,7 @@ function openEntry(entry: CompareEntry) {
                 <button
                   type="button"
                   class="btn btn-sm btn-outline-secondary"
-                  :aria-label="`Remove ${entry.serviceName} — ${entry.displayName} from compare`"
+                  :aria-label="`Remove ${entry.serviceName}- ${entry.displayName} from compare`"
                   @click="remove(entry.id)"
                 >
                   <i class="bi bi-x-lg" aria-hidden="true"></i>

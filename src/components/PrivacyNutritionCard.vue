@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * PrivacyNutritionCard.vue: plain-language, dashboard-style summary of a
- * document's risk — a "nutrition label" for its terms/privacy document.
+ * document's risk- a "nutrition label" for its terms/privacy document.
  * Purely presentational (no emits): the score/scorecard are derived straight
  * from `analysis` and the current risk preferences, so this same component
  * can be reused unchanged for a future side-by-side comparison view.
@@ -29,7 +29,7 @@ const pieSlices = computed(() => buildCategoryPieSlices(scorecardRows.value))
 const pieViewBoxSize = PIE_RADIUS * 2 + 16 // stroke width (16) needs half its width as margin on each side
 const pieCenter = pieViewBoxSize / 2
 
-/** Share of total tagged occurrences each detected category accounts for — same figures as the pie slices. */
+/** Share of total tagged occurrences each detected category accounts for- same figures as the pie slices. */
 const percentageByCategoryId = computed(() => new Map(pieSlices.value.map((slice) => [slice.id, slice.percentage])))
 
 // Same "what does this mean" bubble as RiskPreferencePanel, but instant

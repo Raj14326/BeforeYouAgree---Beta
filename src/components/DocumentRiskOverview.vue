@@ -2,7 +2,7 @@
 /**
  * DocumentRiskOverview.vue: the score/flagged-share/plain-language-summary
  * "top half" of a Privacy Nutrition Card, extracted so the compare view can
- * show it alone (no per-document category scorecard — that's shared across
+ * show it alone (no per-document category scorecard- that's shared across
  * every compared document instead, see CategoryComparisonTable.vue).
  */
 import { computed } from 'vue'

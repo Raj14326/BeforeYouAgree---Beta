@@ -28,7 +28,7 @@ export type CompareEntry = {
   displayName: string
   serviceName: string
   documentType: string
-  /** Copied at add-time — the document session's analyses map is wiped/overwritten in place, so this must not alias into it. */
+  /** Copied at add-time- the document session's analyses map is wiped/overwritten in place, so this must not alias into it. */
   analysis: Analysis
   content: string
   contexts?: DocumentContext[]

@@ -39,6 +39,7 @@ describe('comparison evidence', () => {
   it('sends only selected evidence to Groq and accepts citations to known evidence', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
+        overallBetterDocumentId: 'b',
         overview: 'Both documents provide evidence of sharing.',
         overrides: [],
         caveat: 'This comparison is limited to the supplied evidence.',
@@ -51,12 +52,16 @@ describe('comparison evidence', () => {
     expect(result.comparisons[0]?.evidenceIds).toEqual(['E1', 'E2'])
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     expect(request.store).toBe(false)
+    expect(request.messages[0].content).toContain('Choose exactly one supplied document as better overall')
+    expect(request.messages[0].content).toContain('which service is better for that specific behaviour')
+    expect(request.messages[0].content).toContain('Every sentence must compare the same behaviour across services')
+    expect(request.messages[0].content).toContain('Use everyday language')
     expect(request.messages[1].content).not.toContain('Unrelated account help')
     const prompt = JSON.parse(request.messages[1].content)
     expect(prompt.matchedClauses).toHaveLength(1)
     expect(new Set(prompt.matchedClauses[0].clauses.map((item: { documentId: string }) => item.documentId)))
       .toEqual(new Set(['a', 'b']))
-    expect(request.messages[0].content).toContain('Do not summarize every category separately')
+    expect(request.messages[0].content).toContain('Focus on the strongest differences instead of listing every category')
     expect(prompt.categories[0].assessments).toEqual(expect.arrayContaining([
       expect.objectContaining({ documentId: 'a', score: 0.96, relativeRisk: 'higher' }),
       expect.objectContaining({ documentId: 'b', score: 0, relativeRisk: 'lower' }),
@@ -66,6 +71,7 @@ describe('comparison evidence', () => {
   it('accepts a Groq override only when it cites every compared document', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
+        overallBetterDocumentId: 'a',
         overview: 'The clause meaning changes the result.',
         overrides: [{
           categoryId: 'privacy_third_party_sharing',
@@ -93,6 +99,7 @@ describe('comparison evidence', () => {
     })
     const completion = new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
+        overallBetterDocumentId: 'b',
         overview: 'The documents differ.',
         overrides: [],
         caveat: 'Limited to supplied evidence.',

@@ -50,7 +50,7 @@ const canGenerate = computed(() =>
       <template v-if="status === 'ready' && summary">
         <div class="alert alert-info mt-3 mb-3">
           <h3 class="h6 mb-1">
-            {{ summary.winnerDocumentId ? `${summary.winnerDocumentName} appears better overall` : 'No clear overall winner' }}
+            {{ summary.winnerDocumentName }} is better
           </h3>
           <p class="mb-0">{{ summary.overview }}</p>
         </div>

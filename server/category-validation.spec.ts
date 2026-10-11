@@ -24,7 +24,7 @@ describe('category validation', () => {
       .toContain('contract_by_using')
     expect(supplementalCategories('We sometimes add or remove features and stop offering old services.').map(({ id }) => id))
       .toContain('unilateral_change')
-    expect(supplementalCategories('Your activity — The activity information we collect may include: * Terms you search for.').map(({ id }) => id))
+    expect(supplementalCategories('Your activity- The activity information we collect may include: * Terms you search for.').map(({ id }) => id))
       .toContain('privacy_broad_collection')
   })
 })

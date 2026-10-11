@@ -65,7 +65,7 @@ export function useHoverTooltip(getScrollContainer?: () => HTMLElement | null | 
   }
 
   /**
-   * Hover intent anchored to the pointer instead of the trigger's own edge —
+   * Hover intent anchored to the pointer instead of the trigger's own edge-
    * for stacked/overlapping shapes (e.g. donut-chart segments) whose
    * bounding rects are identical regardless of which one is hovered.
    */

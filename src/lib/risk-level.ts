@@ -19,7 +19,7 @@ export function riskLevelColor(riskLevel: RiskLevel) {
  * Nutrition Card. Thresholds match {@link import('./personalised-risk-score').personalisedRiskLevel}.
  */
 export function riskLevelPhrase(score: number): string {
-  if (score >= 75) return 'This document is high-risk — it uses many clauses common in one-sided agreements.'
-  if (score >= 45) return 'This document carries some risk — a few clauses are worth reading closely.'
+  if (score >= 75) return 'This document is high-risk- it uses many clauses common in one-sided agreements.'
+  if (score >= 45) return 'This document carries some risk- a few clauses are worth reading closely.'
   return 'This document looks relatively low-risk based on what was found.'
 }

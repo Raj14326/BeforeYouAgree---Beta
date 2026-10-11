@@ -178,11 +178,11 @@ async function analyzeDocument(request: IncomingMessage, response: ServerRespons
 
 async function compareDocuments(request: IncomingMessage, response: ServerResponse) {
   response.setHeader('Cache-Control', 'no-store')
-  const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) return sendJson(response, 503, { error: 'AI comparison is not configured yet.' })
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
     return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
   const body = await readJsonBody(request)
+  const apiKey = process.env.GROQ_API_KEY
+  if (!apiKey) return sendJson(response, 503, { error: 'AI comparison is not configured yet.' })
   if (!Array.isArray(body.documents) || body.documents.length < 2 || body.documents.length > 4)
     return sendJson(response, 400, { error: 'Choose between two and four documents to compare.' })
   const documents = body.documents.map(validComparisonDocument)
@@ -651,7 +651,7 @@ function formatVersionDate(value?: string) {
  * Read `key` from {@link responseCache} if it is still fresh, otherwise run
  * `loader`, store the result for `ttl` ms, and return it. If `loader` throws and
  * a stale (expired) entry for `key` exists, that stale value is served instead
- * of propagating the error — this keeps read endpoints up during a transient
+ * of propagating the error- this keeps read endpoints up during a transient
  * upstream outage (e.g. a ToS;DR rate limit) instead of amplifying it with
  * every incoming request retrying the failing upstream call. Only successful
  * loads refresh the cache. The cache is unbounded but entries are effectively

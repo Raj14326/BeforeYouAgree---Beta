@@ -2,8 +2,8 @@
  * The service + documents the user is currently working with, shared by
  * DocumentSelectView (pick a document) and ReviewView (read its analysis).
  *
- * A module-scope singleton, so moving between the flow's steps — or out to
- * Compare and back — keeps every retrieval and analysis already fetched.
+ * A module-scope singleton, so moving between the flow's steps- or out to
+ * Compare and back- keeps every retrieval and analysis already fetched.
  * Selecting a different service (or uploading a document) starts a fresh
  * session. Nothing is persisted, so a page refresh re-fetches from the
  * route params.
@@ -95,7 +95,7 @@ function resetSession() {
  * Make `service` the current session. A no-op if it already is (or is
  * already loading), so navigating between steps never refetches; any other
  * service resets every per-document map first. Nothing is retrieved or
- * analysed here — that happens per document, in {@link openDocument}.
+ * analysed here- that happens per document, in {@link openDocument}.
  */
 function loadService(service: Service): Promise<void> {
   if (currentServicePath.value === service.path && selectedService.value) return Promise.resolve()
@@ -135,7 +135,7 @@ async function fetchService(service: Service) {
 /**
  * Start a session for a user-supplied document (pasted or extracted from an
  * uploaded file, see DocumentUploadPanel). Builds a synthetic single-term
- * declaration whose content is already in hand — skipping `retrieveTerm` —
+ * declaration whose content is already in hand- skipping `retrieveTerm`-
  * then runs it through the same `analyseTerm` as a catalogue document.
  */
 function startUpload({ name, content }: { name: string; content: string }) {
@@ -350,7 +350,7 @@ async function toggleVersionCompare(termType: string) {
   else await addVersionToCompare(termType)
 }
 
-/** Add whatever's currently loaded for this document — the active version for a catalogue document, or the upload's own text. */
+/** Add whatever's currently loaded for this document- the active version for a catalogue document, or the upload's own text. */
 function addCurrentToCompare(termType: string) {
   const analysis = analyses.value[termType]
   const service = selectedService.value

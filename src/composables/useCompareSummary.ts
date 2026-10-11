@@ -33,7 +33,7 @@ export function useCompareSummary(entries: Ref<CompareEntry[]>) {
         body: JSON.stringify({
           documents: entries.value.map((entry) => ({
             id: entry.id,
-            name: `${entry.serviceName} — ${entry.displayName}`,
+            name: `${entry.serviceName}- ${entry.displayName}`,
             documentType: entry.documentType,
             content: entry.content,
             contexts: entry.contexts,

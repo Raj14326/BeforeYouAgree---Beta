@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * One shared scorecard comparing every compared document at once: rows are
- * risk categories, columns are documents — replaces each compare card
+ * risk categories, columns are documents- replaces each compare card
  * repeating its own category list (see DocumentRiskOverview.vue), so "what's
  * detected across all of these" reads as a single comparison. Styled to
  * match PrivacyNutritionCard.vue's own scorecard table.

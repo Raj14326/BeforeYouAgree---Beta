@@ -51,7 +51,7 @@ describe('policy clause splitting', () => {
     }])
     expect(clauses[0]?.skipAnalysis).toBe(true)
     expect(clauses[1]?.skipAnalysis).toBe(true)
-    expect(clauses[2]?.context).toBe('Information we collect — Activity may include')
+    expect(clauses[2]?.context).toBe('Information we collect- Activity may include')
   })
 
   it('skips internal Markdown navigation links but retains substantive clauses', () => {

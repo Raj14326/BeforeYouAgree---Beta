@@ -64,7 +64,7 @@ export function splitClauses(
     if (heading || section?.skipAnalysis || isNavigationFragment(clause.text)) clause.skipAnalysis = true
 
     if (isBullet(clause.text)) {
-      clause.context = [...new Set([section?.text, listContext].filter(Boolean))].join(' — ') || undefined
+      clause.context = [...new Set([section?.text, listContext].filter(Boolean))].join('- ') || undefined
       continue
     }
     listContext = inferredContext(clause.text)
