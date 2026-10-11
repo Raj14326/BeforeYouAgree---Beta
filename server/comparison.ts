@@ -51,6 +51,12 @@ export type ComparisonSummary = {
 }
 
 const STOP_WORDS = new Set('a an and are as at be been by for from has have if in into is it its may of on or our shall that the their these this to we will with you your'.split(' '))
+// Keep the complete request below Groq's 8K TPM free-tier allowance. The JSON
+// schema, instructions, and reserved completion tokens all count toward it.
+const GROQ_EVIDENCE_CHARACTER_BUDGET = 5_000
+const GROQ_RETRY_EVIDENCE_CHARACTER_BUDGET = 2_000
+const GROQ_MAX_COMPLETION_TOKENS = 1_500
+const GROQ_RETRY_MAX_COMPLETION_TOKENS = 1_000
 
 function words(text: string) {
   return text.toLowerCase().match(/[a-z][a-z0-9-]{2,}/g)?.filter((word) => !STOP_WORDS.has(word)) ?? []
@@ -149,6 +155,36 @@ export function comparisonEvidence(documents: ComparisonDocument[]) {
     }
   }
   return evidence.slice(0, 150)
+}
+
+/** Keep categories represented evenly instead of letting early categories consume the prompt. */
+function boundedEvidence(evidence: ComparisonEvidence[], characterBudget: number) {
+  const groups = new Map<string, ComparisonEvidence[]>()
+  for (const item of evidence) {
+    const group = groups.get(item.categoryId) ?? []
+    group.push(item)
+    groups.set(item.categoryId, group)
+  }
+  for (const group of groups.values()) group.sort((a, b) => Number(b.source === 'flagged') - Number(a.source === 'flagged'))
+
+  const selected: ComparisonEvidence[] = []
+  let characters = 2 // JSON array brackets
+  let index = 0
+  let added = true
+  while (added) {
+    added = false
+    for (const group of groups.values()) {
+      const item = group[index]
+      if (!item) continue
+      const size = JSON.stringify(item).length + 1
+      if (characters + size > characterBudget) continue
+      selected.push(item)
+      characters += size
+      added = true
+    }
+    index += 1
+  }
+  return selected
 }
 
 const RESPONSE_SCHEMA = {
@@ -251,9 +287,10 @@ function validatedSummary(
 }
 
 export async function compareWithGroq(documents: ComparisonDocument[], apiKey: string, model: string) {
-  const evidence = comparisonEvidence(documents)
-  if (!evidence.length) throw new Error('No risky clauses were available to compare.')
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const availableEvidence = comparisonEvidence(documents)
+  if (!availableEvidence.length) throw new Error('No risky clauses were available to compare.')
+
+  const requestGroq = (evidence: ComparisonEvidence[], maxCompletionTokens: number) => fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(90_000),
@@ -261,7 +298,7 @@ export async function compareWithGroq(documents: ComparisonDocument[], apiKey: s
       model,
       temperature: 0.1,
       reasoning_effort: 'low',
-      max_completion_tokens: 6_000,
+      max_completion_tokens: maxCompletionTokens,
       store: false,
       messages: [
         {
@@ -284,7 +321,24 @@ export async function compareWithGroq(documents: ComparisonDocument[], apiKey: s
       },
     }),
   })
-  if (!response.ok) throw new Error(`Groq request failed (${response.status}).`)
+
+  let evidence = boundedEvidence(availableEvidence, GROQ_EVIDENCE_CHARACTER_BUDGET)
+  let response = await requestGroq(evidence, GROQ_MAX_COMPLETION_TOKENS)
+  if (response.status === 413) {
+    evidence = boundedEvidence(availableEvidence, GROQ_RETRY_EVIDENCE_CHARACTER_BUDGET)
+    response = await requestGroq(evidence, GROQ_RETRY_MAX_COMPLETION_TOKENS)
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    // Groq error bodies can contain organization identifiers; keep those in
+    // server logs only and return a safe, actionable message to the client.
+    if (response.status === 413) {
+      console.error(`Groq rejected the reduced comparison request (413): ${detail.slice(0, 500)}`)
+      throw new Error('The comparison is still too large for the configured Groq token limit.')
+    }
+    const suffix = detail ? `: ${detail.slice(0, 500)}` : ''
+    throw new Error(`Groq request failed (${response.status})${suffix}`)
+  }
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
   const content = payload.choices?.[0]?.message?.content
   if (!content) throw new Error('Groq returned an empty comparison.')

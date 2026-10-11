@@ -63,4 +63,26 @@ describe('comparison evidence', () => {
     expect(request.store).toBe(false)
     expect(request.messages[1].content).not.toContain('Unrelated account help')
   })
+
+  it('retries a 413 response with a smaller request', async () => {
+    const completion = new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        overview: 'The documents differ.',
+        comparisons: [],
+        caveat: 'Limited to supplied evidence.',
+      }) } }],
+    }), { status: 200 })
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('request too large', { status: 413 }))
+      .mockResolvedValueOnce(completion)
+    vi.stubGlobal('fetch', fetchMock)
+
+    await compareWithGroq(documents, 'secret', 'test-model')
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const first = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
+    const retry = JSON.parse(fetchMock.mock.calls[1]![1].body as string)
+    expect(first.max_completion_tokens).toBe(1_500)
+    expect(retry.max_completion_tokens).toBe(1_000)
+  })
 })

@@ -30,7 +30,7 @@ import { supplementalCategories, validCategories } from './category-validation.t
  * a Hugging Face download. Override the directory with `BERT_MODEL_DIR`.
  */
 const MODEL_PATH = resolve(
-  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tosAdded',
 )
 env.allowRemoteModels = false
 
