@@ -54,16 +54,6 @@ const canGenerate = computed(() =>
           </h3>
           <p class="mb-0">{{ summary.overview }}</p>
         </div>
-        <div v-for="comparison in summary.comparisons" :key="comparison.categoryId" class="border-top py-3">
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-            <h3 class="h6 mb-0">{{ comparison.categoryName }}</h3>
-            <span v-if="comparison.betterDocumentId" class="badge text-bg-success">
-              Better: {{ comparison.betterDocumentName }}
-            </span>
-            <span v-else class="badge text-bg-secondary">No clear winner</span>
-          </div>
-          <p class="mb-0">{{ comparison.summary }}</p>
-        </div>
         <p class="small text-body-secondary mb-0">{{ summary.caveat }}</p>
       </template>
     </div>

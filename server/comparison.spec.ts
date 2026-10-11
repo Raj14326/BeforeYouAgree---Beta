@@ -40,17 +40,7 @@ describe('comparison evidence', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
         overview: 'Both documents provide evidence of sharing.',
-        comparisons: [{
-          categoryId: 'privacy_third_party_sharing',
-          categoryName: 'Third-party data sharing',
-          conclusion: 'both',
-          assessments: [
-            { documentId: 'a', relativeRisk: 'higher' },
-            { documentId: 'b', relativeRisk: 'lower' },
-          ],
-          summary: 'Both describe providing personal information to advertising companies.',
-          evidenceIds: ['E1', 'E2', 'invented'],
-        }],
+        overrides: [],
         caveat: 'This comparison is limited to the supplied evidence.',
       }) } }],
     }), { status: 200 }))
@@ -62,13 +52,49 @@ describe('comparison evidence', () => {
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     expect(request.store).toBe(false)
     expect(request.messages[1].content).not.toContain('Unrelated account help')
+    const prompt = JSON.parse(request.messages[1].content)
+    expect(prompt.matchedClauses).toHaveLength(1)
+    expect(new Set(prompt.matchedClauses[0].clauses.map((item: { documentId: string }) => item.documentId)))
+      .toEqual(new Set(['a', 'b']))
+    expect(request.messages[0].content).toContain('Do not summarize every category separately')
+    expect(prompt.categories[0].assessments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ documentId: 'a', score: 0.96, relativeRisk: 'higher' }),
+      expect.objectContaining({ documentId: 'b', score: 0, relativeRisk: 'lower' }),
+    ]))
   })
 
-  it('retries a 413 response with a smaller request', async () => {
+  it('accepts a Groq override only when it cites every compared document', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        overview: 'The clause meaning changes the result.',
+        overrides: [{
+          categoryId: 'privacy_third_party_sharing',
+          betterDocumentId: 'a',
+          reason: 'Service A is safer based on the meaning of both cited clauses.',
+          evidenceIds: ['E1', 'E2'],
+        }],
+        caveat: 'Limited to supplied evidence.',
+      }) } }],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await compareWithGroq(documents, 'secret', 'test-model')
+
+    expect(result.comparisons[0]?.betterDocumentId).toBe('a')
+    expect(result.winnerDocumentId).toBe('a')
+  })
+
+  it('retries a failed response with a smaller request', async () => {
+    const multiCategoryDocuments = structuredClone(documents)
+    multiCategoryDocuments[0]!.findings[0]!.categories.push({
+      id: 'privacy_retention',
+      name: 'Data retention',
+      score: 0.91,
+    })
     const completion = new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
         overview: 'The documents differ.',
-        comparisons: [],
+        overrides: [],
         caveat: 'Limited to supplied evidence.',
       }) } }],
     }), { status: 200 })
@@ -77,12 +103,23 @@ describe('comparison evidence', () => {
       .mockResolvedValueOnce(completion)
     vi.stubGlobal('fetch', fetchMock)
 
-    await compareWithGroq(documents, 'secret', 'test-model')
+    await compareWithGroq(multiCategoryDocuments, 'secret', 'test-model')
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const first = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     const retry = JSON.parse(fetchMock.mock.calls[1]![1].body as string)
-    expect(first.max_completion_tokens).toBe(1_500)
-    expect(retry.max_completion_tokens).toBe(1_000)
+    expect(first.max_completion_tokens).toBe(450)
+    expect(retry.max_completion_tokens).toBe(350)
+    const retryPrompt = JSON.parse(retry.messages[1].content)
+    expect(retryPrompt.matchedClauses).toHaveLength(2)
+  })
+
+  it('returns a stable error after the initial attempt and three retries fail', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('upstream failure', { status: 500 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(compareWithGroq(documents, 'secret', 'test-model'))
+      .rejects.toThrow('AI summary could not be provided.')
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 })
