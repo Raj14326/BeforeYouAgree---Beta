@@ -54,9 +54,8 @@ const canGenerate = computed(() =>
           </h3>
           <p class="mb-0">{{ summary.overview }}</p>
         </div>
-        <p class="small text-body-secondary mb-0">{{ summary.caveat }}</p>
-        <p class="small text-body-secondary mt-1 mb-0">
-          This compares published policy wording, not actual company conduct, safety, or legal compliance.
+        <p class="small text-body-secondary mb-0">
+          This compares policy wording, not what companies actually do.
         </p>
       </template>
     </div>

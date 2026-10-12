@@ -81,7 +81,11 @@ function openEntry(entry: CompareEntry) {
           <div class="card shadow-sm h-100">
             <div class="card-body d-flex flex-column">
               <div class="d-flex align-items-start gap-2 mb-3">
-                <BrandAvatar :service-name="entry.serviceName" size="lg" />
+                <BrandAvatar
+                  :service-name="entry.serviceName"
+                  :logo-url="entry.logoUrl"
+                  size="lg"
+                />
                 <div class="flex-grow-1">
                   <div class="fw-semibold">{{ entry.serviceName }}</div>
                   <div class="small text-body-secondary">{{ entry.displayName }}</div>

@@ -12,6 +12,44 @@ import type { DocumentContext } from './clauses.ts'
 const HEADING_START = '\uE000'
 const HEADING_END = '\uE001'
 
+function decodeAttributeEntities(value: string) {
+  const named: Record<string, string> = {
+    amp: '&', apos: "'", gt: '>', lt: '<', quot: '"',
+  }
+  return value.replace(/&(#x[\da-f]+|#\d+|amp|apos|gt|lt|quot);/gi, (entity, code: string) => {
+    if (code[0] !== '#') return named[code.toLowerCase()] ?? entity
+    const point = code[1]?.toLowerCase() === 'x'
+      ? Number.parseInt(code.slice(2), 16)
+      : Number.parseInt(code.slice(1), 10)
+    return Number.isFinite(point) ? String.fromCodePoint(point) : entity
+  })
+}
+
+/** Extract HTML held by AEM-style text components in an encoded JSON attribute. */
+function embeddedTextComponentHtml(value: string) {
+  const fragments: string[] = []
+  for (const match of value.matchAll(/\bdatamodel="([^"]*)"/gi)) {
+    const decoded = decodeAttributeEntities(match[1]!)
+    try {
+      const model = JSON.parse(decoded) as { text?: unknown }
+      if (typeof model.text === 'string' && model.text.trim()) fragments.push(model.text)
+    } catch {
+      // Some AEM pages put literal line breaks inside the JSON string, which is
+      // invalid JSON. Recover only the text field while preserving its escapes.
+      const text = /"text"\s*:\s*"((?:\\.|[^"\\])*)"/s.exec(decoded)?.[1]
+      if (!text) continue
+      try {
+        const normalized = text.replace(/\r/g, '\\r').replace(/\n/g, '\\n').replace(/\t/g, '\\t')
+        const parsed = JSON.parse(`"${normalized}"`) as unknown
+        if (typeof parsed === 'string' && parsed.trim()) fragments.push(parsed)
+      } catch {
+        // Ignore unrelated or malformed component metadata; visible HTML is still processed.
+      }
+    }
+  }
+  return fragments.join('\n')
+}
+
 function normalizeConvertedText(value: string) {
   return value
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
@@ -22,7 +60,13 @@ function normalizeConvertedText(value: string) {
 }
 
 function convertHtml(value: string) {
-  return convert(value, {
+  const embedded = embeddedTextComponentHtml(value)
+  const source = embedded
+    ? /<\/body>/i.test(value)
+      ? value.replace(/<\/body>/i, `${embedded}</body>`)
+      : `${value}\n${embedded}`
+    : value
+  return convert(source, {
     wordwrap: false,
     preserveNewlines: true,
     formatters: {

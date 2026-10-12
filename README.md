@@ -69,6 +69,7 @@ Health check: /api/health
 | `GET` | `/api/services` | List available services |
 | `GET` | `/api/services?search=github` | Search for a service |
 | `GET` | `/api/service/:serviceId` | Get a service and its documents |
+| `GET` | `/api/australian-policy/:slug` | Retrieve an Australian catalogue policy |
 | `GET` | `/api/versions/:serviceId/:documentId` | List archived document versions |
 | `GET` | `/api/version/:serviceId/:documentId/latest` | Retrieve the latest document text |
 | `GET` | `/api/version/:serviceId/:documentId/:commitSha` | Retrieve an archived document version |

@@ -27,6 +27,7 @@ export type CompareEntry = {
   id: string
   displayName: string
   serviceName: string
+  logoUrl?: string | null
   documentType: string
   /** Copied at add-time- the document session's analyses map is wiped/overwritten in place, so this must not alias into it. */
   analysis: Analysis

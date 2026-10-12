@@ -161,6 +161,7 @@ async function showInText(finding: RiskFinding) {
       <div class="main-column">
         <ServiceDocumentCard
           :service-name="selectedService.name"
+          :logo-url="selectedService.logoUrl"
           :term-type="termType"
           :title="isUpload ? 'Uploaded document' : session.documentLabel(termType)"
           :term="term"
