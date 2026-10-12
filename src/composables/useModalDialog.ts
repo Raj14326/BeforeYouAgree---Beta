@@ -1,6 +1,6 @@
 /**
  * Open/close + backdrop-dismiss plumbing for a native modal <dialog>, shared
- * by the header pop-ups (QuickGuide, RiskPreferenceSettings) and ActionGuide.
+ * by the header pop-ups (RiskPreferenceSettings) and ActionGuide.
  * Bind `dialog` as the element's ref and wire `onClose`, `onPointerdown` and
  * `onClick` to its close/pointerdown/click events.
  */

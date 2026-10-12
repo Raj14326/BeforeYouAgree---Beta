@@ -108,7 +108,7 @@ function originalDocumentId(value: string) {
         <div v-if="analysisError" class="text-danger small mt-1">{{ analysisError }}</div>
       </div>
 
-      <div class="d-flex flex-wrap justify-content-end align-items-center gap-2 position-relative">
+      <div class="d-flex flex-wrap justify-content-end align-items-center gap-2 position-relative" data-tour="document-toolbar">
         <button
           v-if="retrieval"
           type="button"
@@ -140,6 +140,7 @@ function originalDocumentId(value: string) {
           v-if="analysis"
           type="button"
           class="btn btn-sm compare-button"
+          data-tour="compare-button"
           :class="isCompared ? 'compare-button--added' : 'btn-primary'"
           :aria-pressed="isCompared"
           :title="isCompared ? 'Click to remove from compare' : undefined"
