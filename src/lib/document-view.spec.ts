@@ -45,4 +45,15 @@ describe('document viewer HTML', () => {
     expect(html).toContain('<ol><li>Safe item</li></ol>')
     expect(html).not.toContain('<our>')
   })
+
+  it('renders attack-shaped policy text without creating executable markup', () => {
+    const content = '<img src=x onerror="alert(1)">\n<script>alert(2)</script>\n\'; DROP TABLE users; --'
+    const html = buildDocumentViewHtml(content, undefined, 'privacy')
+
+    expect(html).toContain('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;')
+    expect(html).toContain('&lt;script&gt;alert(2)&lt;/script&gt;')
+    expect(html).toContain("'; DROP TABLE users; --")
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('<script>')
+  })
 })
