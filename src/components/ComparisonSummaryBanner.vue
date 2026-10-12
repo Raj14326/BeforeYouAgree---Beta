@@ -50,11 +50,14 @@ const canGenerate = computed(() =>
       <template v-if="status === 'ready' && summary">
         <div class="alert alert-info mt-3 mb-3">
           <h3 class="h6 mb-1">
-            {{ summary.winnerDocumentName }} is better
+            Closest fit based on reviewed clauses: {{ summary.bestFitDocumentName }}
           </h3>
           <p class="mb-0">{{ summary.overview }}</p>
         </div>
         <p class="small text-body-secondary mb-0">{{ summary.caveat }}</p>
+        <p class="small text-body-secondary mt-1 mb-0">
+          This compares published policy wording, not actual company conduct, safety, or legal compliance.
+        </p>
       </template>
     </div>
   </section>
