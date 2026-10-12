@@ -8,7 +8,8 @@
 
 Before You Agree retrieves terms and privacy policies, then uses a fine-tuned
 LEGAL-BERT model to classify each clause across eight potentially unfair Terms
-of Service categories, complemented by auditable privacy-policy rules.
+of Service categories, complemented by auditable privacy-policy rules. Policies can be selected
+from the catalogue, pasted, uploaded as a file, or fetched directly from a public URL.
 
 ## Run with npm
 
@@ -72,6 +73,7 @@ Health check: /api/health
 | `GET` | `/api/version/:serviceId/:documentId/latest` | Retrieve the latest document text |
 | `GET` | `/api/version/:serviceId/:documentId/:commitSha` | Retrieve an archived document version |
 | `POST` | `/api/analyze` | Classify document clauses with LEGAL-BERT |
+| `POST` | `/api/fetch-policy` | Fetch readable policy text from a public URL |
 
 Example analysis request:
 

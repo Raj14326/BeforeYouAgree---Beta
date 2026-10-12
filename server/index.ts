@@ -38,6 +38,7 @@ import { analyzeWithBert } from './bert-model.ts'
 import { ensureModelAvailable } from './model-storage.ts'
 import type { DocumentContext } from './clauses.ts'
 import { compareWithGroq, type ComparisonDocument } from './comparison.ts'
+import { fetchPolicyUrl, PolicyFetchError } from './policy-url.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -116,6 +117,10 @@ const server = http.createServer(async (request, response) => {
       enforceRateLimit(request)
       return await analyzeDocument(request, response)
     }
+    if (request.method === 'POST' && url.pathname === '/api/fetch-policy') {
+      enforceRateLimit(request)
+      return await fetchPolicyDocument(request, response)
+    }
     if (request.method === 'POST' && url.pathname === '/api/compare-summary') {
       enforceRateLimit(request)
       enforceComparisonRateLimit(request)
@@ -174,6 +179,25 @@ async function analyzeDocument(request: IncomingMessage, response: ServerRespons
     return sendJson(response, 413, { error: 'Document is too large to analyze.' })
   const contexts = validContexts(body.contexts, content.length)
   return sendJson(response, 200, await analyzeWithBert(content, contexts))
+}
+
+/** `POST /api/fetch-policy`: retrieve and extract a public policy web page. */
+async function fetchPolicyDocument(request: IncomingMessage, response: ServerResponse) {
+  response.setHeader('Cache-Control', 'no-store')
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
+    return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
+  const body = await readJsonBody(request)
+  const url = typeof body.url === 'string' ? body.url.trim() : ''
+  if (!url || url.length > 2_048)
+    return sendJson(response, 400, { error: 'A valid policy URL is required.' })
+  try {
+    return sendJson(response, 200, await fetchPolicyUrl(url))
+  } catch (cause) {
+    const policyError = cause instanceof PolicyFetchError ? cause : null
+    return sendJson(response, policyError?.statusCode || 502, {
+      error: policyError?.message || 'The policy page could not be fetched. Please paste the text directly.',
+    })
+  }
 }
 
 async function compareDocuments(request: IncomingMessage, response: ServerResponse) {
