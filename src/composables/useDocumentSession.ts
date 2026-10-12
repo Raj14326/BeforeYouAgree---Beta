@@ -42,6 +42,8 @@ const versions = ref<Record<string, VersionOption[]>>({})
 const selectedVersions = ref<Record<string, string>>({})
 /** `null` = latest; a URL = which archived version is loaded (or loading) for that term. */
 const loadedVersionUrl = ref<Record<string, string | null>>({})
+/** Monotonic per-document token; stale async work must not update the active version. */
+const documentLoadIds: Record<string, number> = {}
 /**
  * Compare-list id of the current upload, once added. Catalogue documents
  * need no bookkeeping (their id is derived from service+type+version), but
@@ -86,6 +88,7 @@ function resetSession() {
   selectedVersions.value = {}
   loadedVersionUrl.value = {}
   addingVersionUrl.value = {}
+  for (const key of Object.keys(documentLoadIds)) delete documentLoadIds[key]
   uploadCompareId.value = null
   activeTerm.value = null
 }
@@ -171,7 +174,8 @@ function startUpload({ name, content }: { name: string; content: string }) {
     repositoryUrl: '',
   }
   activeTerm.value = UPLOAD_TERM_TYPE
-  void analyseTerm(UPLOAD_TERM_TYPE)
+  documentLoadIds[UPLOAD_TERM_TYPE] = 1
+  void analyseTerm(UPLOAD_TERM_TYPE, 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -183,36 +187,49 @@ function startUpload({ name, content }: { name: string; content: string }) {
  * archived version; otherwise the term's `latestUrl` is used. Clears any
  * prior analysis for this term so the viewer starts from raw text.
  */
-async function retrieveTerm(termType: string, versionUrl?: string) {
-  if (!selectedService.value) return
+async function retrieveTerm(termType: string, versionUrl: string | undefined, loadId: number) {
+  if (!selectedService.value) return false
   const token = generation
   retrievingTerm.value[termType] = true
   retrievalErrors.value[termType] = ''
+  delete retrievals.value[termType]
+  delete analyses.value[termType]
+  delete findingFilters.value[termType]
   try {
     const term = selectedService.value.terms[termType]
     if (!term?.latestUrl) throw new Error('No archived version is available for this document.')
     const retrieval = await fetchRetrieval(versionUrl || term.latestUrl)
-    if (token !== generation) return
+    if (token !== generation || documentLoadIds[termType] !== loadId) return false
     retrievals.value[termType] = retrieval
     delete analyses.value[termType]
     delete findingFilters.value[termType]
     analysisErrors.value[termType] = ''
+    return true
   } catch (cause) {
-    if (token !== generation) return
+    if (token !== generation || documentLoadIds[termType] !== loadId) return false
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be retrieved.'
+    return false
   } finally {
-    if (token === generation) retrievingTerm.value[termType] = false
+    if (token === generation && documentLoadIds[termType] === loadId)
+      retrievingTerm.value[termType] = false
   }
+}
+
+/** Retry the exact latest/archived document selection that most recently failed. */
+function retryDocument(termType: string) {
+  if (retrievingTerm.value[termType]) return
+  const versionUrl = loadedVersionUrl.value[termType] ?? undefined
+  void autoLoadAndAnalyse(termType, versionUrl)
 }
 
 /**
  * Send the retrieved text to `POST /api/analyze`, store the findings, and
  * default the findings filter to "risky".
  */
-async function analyseTerm(termType: string) {
+async function analyseTerm(termType: string, loadId = documentLoadIds[termType]) {
   const retrieval = retrievals.value[termType]
-  if (!retrieval || analysingTerm.value[termType]) return
+  if (!retrieval || !loadId || documentLoadIds[termType] !== loadId) return
   const token = generation
   analysingTerm.value[termType] = true
   analysisErrors.value[termType] = ''
@@ -223,23 +240,32 @@ async function analyseTerm(termType: string) {
       selectedService.value?.name,
       termType,
     )
-    if (token !== generation) return
+    if (token !== generation || documentLoadIds[termType] !== loadId) return
     analyses.value[termType] = analysis
     findingFilters.value[termType] = 'risky'
   } catch (cause) {
-    if (token !== generation) return
+    if (token !== generation || documentLoadIds[termType] !== loadId) return
     analysisErrors.value[termType] =
       cause instanceof Error ? cause.message : 'The document could not be analysed.'
   } finally {
-    if (token === generation) analysingTerm.value[termType] = false
+    if (token === generation && documentLoadIds[termType] === loadId)
+      analysingTerm.value[termType] = false
   }
+}
+
+/** Retry analysis using the document already retrieved, without fetching it again. */
+function retryAnalysis(termType: string) {
+  void analyseTerm(termType)
 }
 
 /** Retrieve a document (optionally a specific archived version) then immediately analyse it. */
 async function autoLoadAndAnalyse(termType: string, versionUrl?: string) {
+  const loadId = (documentLoadIds[termType] ?? 0) + 1
+  documentLoadIds[termType] = loadId
   loadedVersionUrl.value[termType] = versionUrl ?? null
-  await retrieveTerm(termType, versionUrl)
-  if (retrievals.value[termType]) await analyseTerm(termType)
+  analysingTerm.value[termType] = false
+  const retrieved = await retrieveTerm(termType, versionUrl, loadId)
+  if (retrieved) await analyseTerm(termType, loadId)
 }
 
 /**
@@ -460,6 +486,8 @@ export function useDocumentSession() {
     loadService,
     startUpload,
     openDocument,
+    retryDocument,
+    retryAnalysis,
     isInitialLoading,
     toggleHistory,
     documentLabel,

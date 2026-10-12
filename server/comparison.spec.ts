@@ -39,7 +39,7 @@ describe('comparison evidence', () => {
   it('sends only selected evidence to Groq and accepts citations to known evidence', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        overallBetterDocumentId: 'b',
+        bestFitDocumentId: 'b',
         overview: 'Both documents provide evidence of sharing.',
         overrides: [],
         caveat: 'This comparison is limited to the supplied evidence.',
@@ -48,13 +48,13 @@ describe('comparison evidence', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const result = await compareWithGroq(documents, 'secret', 'test-model')
-    expect(result.winnerDocumentId).toBe('b')
+    expect(result.bestFitDocumentId).toBe('b')
     expect(result.comparisons[0]?.evidenceIds).toEqual(['E1', 'E2'])
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     expect(request.store).toBe(false)
-    expect(request.messages[0].content).toContain('Choose exactly one supplied document as better overall')
-    expect(request.messages[0].content).toContain('which service is better for that specific behaviour')
-    expect(request.messages[0].content).toContain('Every sentence must compare the same behaviour across services')
+    expect(request.messages[0].content).toContain('closest fit based only on fewer identified risks')
+    expect(request.messages[0].content).toContain('Do not call a service better overall')
+    expect(request.messages[0].content).toContain('Every sentence must compare the same behaviour across policies')
     expect(request.messages[0].content).toContain('Use everyday language')
     expect(request.messages[1].content).not.toContain('Unrelated account help')
     const prompt = JSON.parse(request.messages[1].content)
@@ -68,10 +68,27 @@ describe('comparison evidence', () => {
     ]))
   })
 
+  it('truncates an oversized overview at a complete sentence', async () => {
+    const completeSentence = 'Service B has fewer identified risks in the reviewed policy wording. '
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        bestFitDocumentId: 'b',
+        overview: completeSentence.repeat(10) + 'This ending must not be cut in half.',
+        overrides: [],
+        caveat: 'This comparison is limited to published wording.',
+      }) } }],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await compareWithGroq(documents, 'secret', 'test-model')
+    expect(result.overview.length).toBeLessThanOrEqual(600)
+    expect(result.overview).toMatch(/[.!?]$/)
+  })
+
   it('accepts a Groq override only when it cites every compared document', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        overallBetterDocumentId: 'a',
+        bestFitDocumentId: 'a',
         overview: 'The clause meaning changes the result.',
         overrides: [{
           categoryId: 'privacy_third_party_sharing',
@@ -87,7 +104,7 @@ describe('comparison evidence', () => {
     const result = await compareWithGroq(documents, 'secret', 'test-model')
 
     expect(result.comparisons[0]?.betterDocumentId).toBe('a')
-    expect(result.winnerDocumentId).toBe('a')
+    expect(result.bestFitDocumentId).toBe('a')
   })
 
   it('retries a failed response with a smaller request', async () => {
@@ -99,7 +116,7 @@ describe('comparison evidence', () => {
     })
     const completion = new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        overallBetterDocumentId: 'b',
+        bestFitDocumentId: 'b',
         overview: 'The documents differ.',
         overrides: [],
         caveat: 'Limited to supplied evidence.',

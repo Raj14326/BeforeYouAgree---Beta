@@ -188,6 +188,8 @@ async function showInText(finding: RiskFinding) {
           @toggle-history="session.toggleHistory(termType)"
           @update:selected-version="selectedVersions[termType] = $event"
           @retrieve-version="retrieveSelectedVersion"
+          @retry-retrieval="session.retryDocument(termType)"
+          @retry-analysis="session.retryAnalysis(termType)"
           @toggle-compare="session.toggleCurrentCompare(termType)"
           @toggle-version-compare="session.toggleVersionCompare(termType)"
         >

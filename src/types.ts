@@ -71,8 +71,8 @@ export type ComparisonEvidence = {
   similarity?: number
 }
 export type ComparisonSummary = {
-  winnerDocumentId: string | null
-  winnerDocumentName: string
+  bestFitDocumentId: string | null
+  bestFitDocumentName: string
   overview: string
   comparisons: Array<{
     categoryId: string
