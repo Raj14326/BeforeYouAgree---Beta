@@ -13,6 +13,9 @@ dist
 dist-ssr
 coverage
 *.local
+.env
+.env.*
+!.env.example
 
 # Editor directories and files
 .vscode/*
@@ -25,8 +28,14 @@ coverage
 *.sw?
 html-to-plain-text.spec.ts
 *.tsbuildinfo
+/.vite/
 
 .eslintcache
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
 
 # Cypress
 /cypress/videos/
@@ -40,3 +49,16 @@ __screenshots__/
 
 test-results/
 playwright-report/
+
+
+ml/*
+ml/data/
+ml/data/*
+ml/data/unfair_tos/
+ml/data/unfair_tos/**
+ml/train_m006_unfair_tos.py
+ml/sample_policy.txt
+ml_service/
+
+# Local model weights are packaged into the AWS container and never pushed to GitHub.
+/ml/local-models/

@@ -1,7 +1,49 @@
+/**
+ * Before You Agree HTTP API.
+ *
+ * A single dependency-free Node HTTP server. It is the only component that talks
+ * to the outside internet; the Vue frontend calls nothing but this API.
+ *
+ * Responsibilities:
+ *  - Serve the service catalogue and policy documents by proxying **ToS;DR**
+ *    (`api.tosdr.org`).
+ *  - Serve dated historical versions of those documents from the **Open Terms
+ *    Archive** `contrib-versions` repo on GitHub.
+ *  - Run clause risk analysis locally via the fine-tuned LegalBERT model
+ *    (`bert-model.ts`).
+ *  - Be a good upstream citizen: in-memory response caching, a per-IP rate
+ *    limit, request-size limits, and an allow-listed CORS policy.
+ *
+ * Routing is a hand-written match on the split URL path in the request handler
+ * below; every route table entry maps to one `handle*` function. All handlers
+ * reply through {@link sendJson} and throw {@link clientError}/{@link serverError}
+ * for anything that should not be a 200, the top-level catch turns those into
+ * JSON error responses.
+ *
+ * Configuration (environment variables):
+ *  - `PORT` (default 8787), `HOST` (default 0.0.0.0)
+ *  - `ALLOWED_ORIGINS`: comma-separated origins allowed for CORS (localhost is
+ *    always allowed)
+ *  - `GITHUB_TOKEN`: optional; raises the GitHub API rate limit for history
+ *  - `BERT_MODEL_DIR`: optional local LegalBERT model directory
+ *  - `BERT_RISK_CONFIG`: optional risk configuration file
+ *  - `MODEL_S3_BUCKET`/`MODEL_S3_PREFIX`: optional model download location
+ *  - `GROQ_API_KEY`: enables AI comparison summaries; `GROQ_MODEL` overrides its model
+ */
 import http from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { URL } from 'node:url'
-import { htmlToPlainText } from './html-to-plain-text.ts'
+import { htmlToStructuredText } from './html-to-plain-text.ts'
+import { analyzeWithBert } from './bert-model.ts'
+import { ensureModelAvailable } from './model-storage.ts'
+import type { DocumentContext } from './clauses.ts'
+import { compareWithGroq, type ComparisonDocument } from './comparison.ts'
+import { fetchPolicyUrl, PolicyFetchError } from './policy-url.ts'
+import {
+  getAustralianEntity,
+  listAustralianEntities,
+  type AustralianEntitySummary,
+} from './australian-policies.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -19,15 +61,24 @@ type ArchivedDocument = { serviceName: string; termsType: string; path: string }
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '0.0.0.0'
+
+// Upstream data sources.
 const TOSDR_API = 'https://api.tosdr.org'
 const GITHUB_API = 'https://api.github.com'
 const GITHUB_RAW = 'https://raw.githubusercontent.com'
 const ARCHIVE_OWNER = 'OpenTermsArchive'
 const ARCHIVE_REPO = 'contrib-versions'
+
+// Cache lifetimes: metadata (service lists, indexes) is refreshed more often
+// than document bodies, which rarely change and are the expensive fetches.
 const CACHE_TTL_MS = 10 * 60 * 1000
 const CONTENT_CACHE_TTL_MS = 60 * 60 * 1000
+
+// Per-IP rate limit: RATE_LIMIT requests per RATE_WINDOW_MS.
 const RATE_LIMIT = 60
 const RATE_WINDOW_MS = 60 * 1000
+const MAX_CONTENT_LENGTH = 500_000
+const MAX_JSON_BODY_BYTES = 3_100_000
 const ALLOWED_ORIGINS = new Set(
   (process.env.ALLOWED_ORIGINS || '')
     .split(',')
@@ -35,17 +86,50 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean),
 )
 
+/** Process-wide upstream response cache, keyed by a `source:path` string. */
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>()
+/** Per-IP rate-limit counters, keyed by remote address. */
 const requestBuckets = new Map<string, RequestBucket>()
+const comparisonBuckets = new Map<string, RequestBucket>()
 
+/**
+ * Main request handler and route table.
+ *
+ * Order matters: CORS headers first, then the preflight short-circuit, then the
+ * two "special" routes (`/api/health` needs no rate limit; `/api/analyze` is the
+ * only POST), then GET-only path matching by segment count and prefix. Anything
+ * unmatched is a 404. Errors thrown anywhere below are normalised to a JSON
+ * response by the surrounding catch.
+ */
 const server = http.createServer(async (request, response) => {
+  response.on('error', (error: NodeJS.ErrnoException) => {
+    if (!['ECONNABORTED', 'ECONNRESET', 'EPIPE'].includes(error.code ?? '')) console.error(error)
+  })
   setCorsHeaders(request, response)
   if (request.method === 'OPTIONS') return endEmpty(response, 204)
 
   try {
     const url = new URL(request.url || '/', `http://${request.headers.host || 'localhost'}`)
     if (request.method === 'GET' && url.pathname === '/api/health') {
-      return sendJson(response, 200, { status: 'ok', source: 'tosdr', upstream: TOSDR_API })
+      return sendJson(response, 200, {
+        status: 'ok',
+        source: 'tosdr',
+        upstream: TOSDR_API,
+        model: 'BYA LegalBERT v2 eight-label classifier with privacy rules',
+      })
+    }
+    if (request.method === 'POST' && url.pathname === '/api/analyze') {
+      enforceRateLimit(request)
+      return await analyzeDocument(request, response)
+    }
+    if (request.method === 'POST' && url.pathname === '/api/fetch-policy') {
+      enforceRateLimit(request)
+      return await fetchPolicyDocument(request, response)
+    }
+    if (request.method === 'POST' && url.pathname === '/api/compare-summary') {
+      enforceRateLimit(request)
+      enforceComparisonRateLimit(request)
+      return await compareDocuments(request, response)
     }
     if (request.method !== 'GET') {
       return sendJson(response, 405, { error: 'Only GET requests are supported.' })
@@ -58,6 +142,9 @@ const server = http.createServer(async (request, response) => {
     }
     if (segments.length === 3 && segments[0] === 'api' && segments[1] === 'service') {
       return await getService(segments[2], response)
+    }
+    if (segments.length === 3 && segments[0] === 'api' && segments[1] === 'australian-policy') {
+      return await getAustralianPolicy(segments[2], response)
     }
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'versions') {
       return await listVersions(segments[2], segments[3], url, response)
@@ -78,49 +165,251 @@ const server = http.createServer(async (request, response) => {
     const apiError = normalizeError(error)
     if (apiError.statusCode >= 500) console.error(apiError)
     return sendJson(response, apiError.statusCode, {
-      error:
-        apiError.statusCode >= 500
-          ? 'ToS;DR data could not be retrieved right now.'
-          : apiError.message,
+      error: apiError.message,
     })
   }
 })
+
+/**
+ * `POST /api/analyze`: classify a document's clauses with the local BERT model.
+ *
+ * Body: `{ content: string, serviceName?: string, documentType?: string }`.
+ * Rejects empty content (400) and content over 500 kB (413). No upstream calls.
+ */
+async function analyzeDocument(request: IncomingMessage, response: ServerResponse) {
+  response.setHeader('Cache-Control', 'no-store')
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
+    return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
+  const body = await readJsonBody(request)
+  const content = typeof body.content === 'string' ? body.content.trim() : ''
+  if (!content) return sendJson(response, 400, { error: 'Document content is required.' })
+  if (content.length > MAX_CONTENT_LENGTH)
+    return sendJson(response, 413, { error: 'Document is too large to analyze.' })
+  const contexts = validContexts(body.contexts, content.length)
+  return sendJson(response, 200, await analyzeWithBert(content, contexts))
+}
+
+/** `POST /api/fetch-policy`: retrieve and extract a public policy web page. */
+async function fetchPolicyDocument(request: IncomingMessage, response: ServerResponse) {
+  response.setHeader('Cache-Control', 'no-store')
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
+    return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
+  const body = await readJsonBody(request)
+  const url = typeof body.url === 'string' ? body.url.trim() : ''
+  if (!url || url.length > 2_048)
+    return sendJson(response, 400, { error: 'A valid policy URL is required.' })
+  try {
+    return sendJson(response, 200, await fetchPolicyUrl(url))
+  } catch (cause) {
+    const policyError = cause instanceof PolicyFetchError ? cause : null
+    return sendJson(response, policyError?.statusCode || 502, {
+      error: policyError?.message || 'The policy page could not be fetched. Please paste the text directly.',
+    })
+  }
+}
+
+async function compareDocuments(request: IncomingMessage, response: ServerResponse) {
+  response.setHeader('Cache-Control', 'no-store')
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers['content-type'] || ''))
+    return sendJson(response, 415, { error: 'Content-Type must be application/json.' })
+  const body = await readJsonBody(request)
+  const apiKey = process.env.GROQ_API_KEY
+  if (!apiKey) return sendJson(response, 503, { error: 'AI comparison is not configured yet.' })
+  if (!Array.isArray(body.documents) || body.documents.length < 2 || body.documents.length > 4)
+    return sendJson(response, 400, { error: 'Choose between two and four documents to compare.' })
+  const documents = body.documents.map(validComparisonDocument)
+  if (new Set(documents.map(({ id }) => id)).size !== documents.length)
+    return sendJson(response, 400, { error: 'Comparison document IDs must be unique.' })
+  try {
+    const model = process.env.GROQ_MODEL || 'openai/gpt-oss-20b'
+    return sendJson(response, 200, await compareWithGroq(documents, apiKey, model))
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : 'AI comparison failed.'
+    if (message === 'No risky clauses were available to compare.')
+      return sendJson(response, 400, { error: message })
+    throw serverError(message)
+  }
+}
+
+function validComparisonDocument(value: unknown): ComparisonDocument {
+  if (!value || typeof value !== 'object') throw clientError(400, 'Invalid comparison document.')
+  const document = value as Record<string, unknown>
+  const content = typeof document.content === 'string' ? document.content : ''
+  if (!content.trim() || content.length > MAX_CONTENT_LENGTH) throw clientError(413, 'Comparison document is too large.')
+  if (typeof document.id !== 'string' || !document.id || document.id.length > 200 ||
+    typeof document.name !== 'string' || !document.name.trim() || document.name.length > 200 ||
+    typeof document.documentType !== 'string' || document.documentType.length > 100 ||
+    !Array.isArray(document.findings) || document.findings.length > 5_000)
+    throw clientError(400, 'Invalid comparison document.')
+  const findings = document.findings.flatMap((value) => {
+    if (!value || typeof value !== 'object') return []
+    const finding = value as Record<string, unknown>
+    const start = Number(finding.start)
+    const end = Number(finding.end)
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || end > content.length ||
+      !Array.isArray(finding.categories)) return []
+    const categories = finding.categories.slice(0, 30).flatMap((value) => {
+      if (!value || typeof value !== 'object') return []
+      const category = value as Record<string, unknown>
+      return typeof category.id === 'string' && category.id.length <= 100 &&
+        typeof category.name === 'string' && category.name.length <= 150 &&
+        typeof category.score === 'number' && Number.isFinite(category.score) && category.score >= 0 && category.score <= 1
+        ? [{ id: category.id, name: category.name, score: category.score }]
+        : []
+    })
+    const categoryScores = finding.categoryScores && typeof finding.categoryScores === 'object'
+      ? Object.fromEntries(Object.entries(finding.categoryScores as Record<string, unknown>)
+        .slice(0, 30)
+        .filter((entry): entry is [string, number] =>
+          entry[0].length <= 100 && typeof entry[1] === 'number' && Number.isFinite(entry[1]) && entry[1] >= 0 && entry[1] <= 1,
+        ))
+      : undefined
+    return [{
+      text: content.slice(start, end),
+      start,
+      end,
+      predictedLabel: finding.predictedLabel === 'risky' ? 'risky' : 'not_risky',
+      context: typeof finding.context === 'string' ? finding.context.slice(0, 300) : undefined,
+      categories,
+      categoryScores,
+    }]
+  })
+  return {
+    id: document.id,
+    name: document.name.trim(),
+    documentType: document.documentType,
+    content,
+    contexts: validContexts(document.contexts, content.length),
+    findings,
+  }
+}
+
+function validContexts(value: unknown, contentLength: number): DocumentContext[] {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 500).filter((item): item is DocumentContext => {
+    if (!item || typeof item !== 'object') return false
+    const context = item as Partial<DocumentContext>
+    return Number.isInteger(context.start) && Number.isInteger(context.end) &&
+      context.start! >= 0 && context.end! > context.start! && context.end! <= contentLength &&
+      typeof context.text === 'string' && context.text.trim().length > 0 && context.text.length <= 300
+  })
+}
+
+/**
+ * Read and JSON-parse a bounded request body. The byte allowance is larger
+ * than the text limit because JSON escaping can expand otherwise valid text.
+ * and rejecting with 400 on invalid JSON. An empty body parses as `{}`.
+ */
+function readJsonBody(request: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolveBody, reject) => {
+    const declaredLength = Number(request.headers['content-length'] || 0)
+    if (declaredLength > MAX_JSON_BODY_BYTES) {
+      request.resume()
+      reject(clientError(413, 'Request body is too large.'))
+      return
+    }
+    let raw = ''
+    let bytes = 0
+    let rejected = false
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => {
+      if (rejected) return
+      bytes += Buffer.byteLength(chunk)
+      if (bytes > MAX_JSON_BODY_BYTES) {
+        rejected = true
+        reject(clientError(413, 'Request body is too large.'))
+        return
+      }
+      raw += chunk
+    })
+    request.on('end', () => {
+      if (rejected) return
+      try {
+        resolveBody(JSON.parse(raw || '{}') as Record<string, unknown>)
+      } catch {
+        reject(clientError(400, 'Request body must be valid JSON.'))
+      }
+    })
+    request.on('error', reject)
+  })
+}
+
+await ensureModelAvailable()
 
 server.listen(PORT, HOST, () => {
   console.log(`Before You Agree ToS;DR API listening on http://${HOST}:${PORT}`)
 })
 
+/**
+ * `GET /api/services`: the service catalogue, sorted by name.
+ *
+ * With `?search=` it hits the ToS;DR search endpoint; without, it returns the
+ * first page of the full service list. `?limit=` (1–500, default 100) caps the
+ * result. Response: `{ data, count, total }` where each item is
+ * `{ id, name, slug?, rating? }` with `id` stringified.
+ */
 async function listServices(url: URL, response: ServerResponse) {
   const query = (url.searchParams.get('search') || '').trim()
   const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 500)
-  let services: ServiceSummary[]
-  let total: number
+  const tosdrRequest = query
+    ? tosdrJson<{ services?: ServiceSummary[] }>(
+        `/search/v5?query=${encodeURIComponent(query)}`,
+        CACHE_TTL_MS,
+      ).then((payload) => ({ services: payload.services || [], total: payload.services?.length || 0 }))
+    : tosdrJson<{ services?: ServiceSummary[]; page?: { total?: number } }>(
+        '/service/v3?page=1',
+        CACHE_TTL_MS,
+      ).then((payload) => ({
+        services: payload.services || [],
+        total: payload.page?.total || payload.services?.length || 0,
+      }))
+  const australianRequest = cachedJson<AustralianEntitySummary[]>(
+    `australian:entities:${query}:${Math.min(limit, 50)}`,
+    CACHE_TTL_MS,
+    () => listAustralianEntities(query, limit),
+  )
+  const [tosdrResult, australianResult] = await Promise.allSettled([tosdrRequest, australianRequest])
+  if (tosdrResult.status === 'rejected' && australianResult.status === 'rejected')
+    throw serverError('Service catalogues are temporarily unavailable.')
 
-  if (query) {
-    const payload = await tosdrJson<{ services?: ServiceSummary[] }>(
-      `/search/v5?query=${encodeURIComponent(query)}`,
-      CACHE_TTL_MS,
-    )
-    services = payload.services || []
-    total = services.length
-  } else {
-    const payload = await tosdrJson<{
-      services?: ServiceSummary[]
-      page?: { total?: number }
-    }>('/service/v3?page=1', CACHE_TTL_MS)
-    services = payload.services || []
-    total = payload.page?.total || services.length
-  }
-
-  const data = services
+  const tosdr = tosdrResult.status === 'fulfilled' ? tosdrResult.value : { services: [], total: 0 }
+  const australian = australianResult.status === 'fulfilled' ? australianResult.value : []
+  const data = [
+    ...tosdr.services
     .filter((service) => Number.isInteger(service.id) && service.name)
+    .map(({ id, name, slug, rating }) => ({ id: String(id), name, slug, rating, source: 'tosdr' })),
+    ...australian
+      .filter(({ slug, name }) => slug && name)
+      .map(({ slug, name, category, latest_grade, logo_url }) => ({
+        id: `au:${slug}`,
+        name,
+        slug,
+        rating: latest_grade,
+        category,
+        logoUrl: logo_url || undefined,
+        source: 'australian',
+      })),
+  ]
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, limit)
-    .map(({ id, name, slug, rating }) => ({ id: String(id), name, slug, rating }))
-  return sendJson(response, 200, { data, count: data.length, total })
+  return sendJson(response, 200, {
+    data,
+    count: data.length,
+    total: tosdr.total + australian.length,
+  })
 }
 
+/**
+ * `GET /api/service/:serviceId`: one service plus its policy documents.
+ *
+ * Each ToS;DR document is cross-referenced against the Open Terms Archive index
+ * (see {@link getArchiveIndex} / {@link findArchivedDocument}); when a match is
+ * found, `historyAvailable` is set and `historyUrl` points at the versions
+ * route. A missing/failed archive index degrades gracefully to "no history".
+ * Response: `{ id, name, rating, terms: [...] }`.
+ */
 async function getService(serviceId: string, response: ServerResponse) {
+  if (serviceId.startsWith('au:')) return getAustralianService(serviceId.slice(3), response)
   const id = parseId(serviceId, 'service')
   const service = await tosdrJson<Service>(`/service/v3?id=${id}`, CACHE_TTL_MS)
   if (!service?.id || !service.name) throw clientError(404, 'Service not found.')
@@ -150,6 +439,71 @@ async function getService(serviceId: string, response: ServerResponse) {
   })
 }
 
+async function getAustralianService(slug: string, response: ServerResponse) {
+  const entity = await cachedJson(
+    `australian:entity:${slug}`,
+    CACHE_TTL_MS,
+    () => getAustralianEntity(slug),
+  )
+  if (!entity.slug || !entity.name || !entity.privacy_policy_url)
+    throw clientError(404, 'Australian privacy policy not found.')
+  const id = `au:${entity.slug}`
+  return sendJson(response, 200, {
+    id,
+    name: entity.name,
+    rating: entity.latest_grade || 'N/A',
+    logoUrl: entity.logo_url || null,
+    terms: [{
+      id: entity.slug,
+      type: 'Privacy Policy',
+      sourceUrl: entity.privacy_policy_url,
+      available: true,
+      latestUrl: `/api/australian-policy/${encodeURIComponent(entity.slug)}`,
+      updatedAt: entity.last_changed_date || entity.last_scan_date || null,
+      historyAvailable: false,
+      historyUrl: null,
+    }],
+  })
+}
+
+async function getAustralianPolicy(slug: string, response: ServerResponse) {
+  const entity = await cachedJson(
+    `australian:entity:${slug}`,
+    CACHE_TTL_MS,
+    () => getAustralianEntity(slug),
+  )
+  if (!entity.privacy_policy_url) throw clientError(404, 'Australian privacy policy not found.')
+  let policy
+  try {
+    policy = await fetchPolicyUrl(entity.privacy_policy_url)
+  } catch (cause) {
+    const safeError = cause instanceof PolicyFetchError
+      ? cause
+      : new PolicyFetchError('ACCESS_DENIED', 'The policy page could not be fetched.', 502)
+    throw clientError(safeError.statusCode, safeError.message)
+  }
+  return sendJson(response, 200, {
+    format: 'plain_text',
+    id: entity.scan_id || entity.slug,
+    serviceId: `au:${entity.slug}`,
+    termsType: 'Privacy Policy',
+    fetchDate: entity.last_changed_date || entity.last_scan_date || null,
+    content: policy.content,
+    contexts: policy.contexts,
+    characterCount: policy.content.length,
+    sourceUrl: entity.privacy_policy_url,
+    repository: 'Australian Privacy Score',
+    repositoryUrl: entity.privacy_policy_url,
+  })
+}
+
+/**
+ * `GET /api/versions/:serviceId/:documentId`: dated history for one document.
+ *
+ * Lists the Git commits that touched this document's file in the Open Terms
+ * Archive repo, newest first (`?limit=` 1–100, default 100). Each entry carries
+ * a `url` to {@link getArchivedVersion} for that commit SHA.
+ */
 async function listVersions(
   serviceId: string,
   documentId: string,
@@ -158,8 +512,9 @@ async function listVersions(
 ) {
   const { archivedDocument } = await resolveArchivedDocument(serviceId, documentId)
   const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 100)
+  const archivePath = encodeURIComponent(archivedDocument.path)
   const commits = await githubJson<GitHubCommit[]>(
-    `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits?path=${encodeURIComponent(archivedDocument.path)}&per_page=${limit}`,
+    `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits?path=${archivePath}&per_page=${limit}`,
     5 * 60 * 1000,
   )
   const data = commits.map((commit) => ({
@@ -172,6 +527,14 @@ async function listVersions(
   return sendJson(response, 200, { data, count: data.length })
 }
 
+/**
+ * `GET /api/version/:serviceId/:documentId/:commitSha`: one archived version.
+ *
+ * `commitSha` must be a full 40-hex Git SHA. The commit is verified to actually
+ * touch this document's file (else 404) before the raw Markdown at that revision
+ * is fetched. Response mirrors {@link getDocument} but with
+ * `repository: "OpenTermsArchive/contrib-versions"` and a GitHub blob URL.
+ */
 async function getArchivedVersion(
   serviceId: string,
   documentId: string,
@@ -179,7 +542,10 @@ async function getArchivedVersion(
   response: ServerResponse,
 ) {
   if (!/^[a-f0-9]{40}$/i.test(revision)) throw clientError(400, 'Invalid version ID.')
-  const { service, document, archivedDocument } = await resolveArchivedDocument(serviceId, documentId)
+  const { service, document, archivedDocument } = await resolveArchivedDocument(
+    serviceId,
+    documentId,
+  )
   const commit = await githubJson<GitHubCommit>(
     `/repos/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/commits/${revision}`,
     5 * 60 * 1000,
@@ -189,6 +555,7 @@ async function getArchivedVersion(
   }
   const content = await archiveText(revision, archivedDocument.path)
   const fetchDate = commit.commit.committer?.date || commit.commit.author?.date || null
+  const repositoryPath = encodePath(archivedDocument.path)
   return sendJson(response, 200, {
     format: 'plain_text',
     id: revision,
@@ -199,21 +566,39 @@ async function getArchivedVersion(
     characterCount: content.length,
     sourceUrl: document.url || null,
     repository: `${ARCHIVE_OWNER}/${ARCHIVE_REPO}`,
-    repositoryUrl: `https://github.com/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/blob/${revision}/${encodePath(archivedDocument.path)}`,
+    repositoryUrl: `https://github.com/${ARCHIVE_OWNER}/${ARCHIVE_REPO}/blob/${revision}/${repositoryPath}`,
   })
 }
 
+/**
+ * Shared lookup for the two history routes: resolve `serviceId`/`documentId` to
+ * the ToS;DR service and document, then to the matching Open Terms Archive file.
+ * Throws 404 at whichever step fails.
+ */
 async function resolveArchivedDocument(serviceId: string, documentId: string) {
   const serviceNumber = parseId(serviceId, 'service')
   const documentNumber = parseId(documentId, 'document')
   const service = await tosdrJson<Service>(`/service/v3?id=${serviceNumber}`, CACHE_TTL_MS)
   const document = service.documents?.find((item) => item.id === documentNumber)
   if (!document) throw clientError(404, 'Terms document not found for this service.')
-  const archivedDocument = findArchivedDocument(await getArchiveIndex(), service.name, document.name)
-  if (!archivedDocument) throw clientError(404, 'No historical versions are available for this document.')
+  const archivedDocument = findArchivedDocument(
+    await getArchiveIndex(),
+    service.name,
+    document.name,
+  )
+  if (!archivedDocument)
+    throw clientError(404, 'No historical versions are available for this document.')
   return { service, document, archivedDocument }
 }
 
+/**
+ * `GET /api/version/:serviceId/:documentId/latest`: current document text.
+ *
+ * Fetches the ToS;DR document, checks it belongs to the given service (else
+ * 404), and converts its stored HTML to plain text via {@link htmlToPlainText}.
+ * Response: `{ format, id, serviceId, termsType, fetchDate, content,
+ * characterCount, sourceUrl, repository: "ToS;DR", repositoryUrl }`.
+ */
 async function getDocument(serviceId: string, documentId: string, response: ServerResponse) {
   const service = parseId(serviceId, 'service')
   const document = parseId(documentId, 'document')
@@ -226,7 +611,7 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
     throw clientError(404, 'Terms document not found for this service.')
   }
 
-  const content = htmlToPlainText(terms.text || '')
+  const { content, contexts } = htmlToStructuredText(terms.text || '')
 
   return sendJson(response, 200, {
     format: 'plain_text',
@@ -235,6 +620,7 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
     termsType: terms.name,
     fetchDate: terms.updated_at || null,
     content,
+    contexts,
     characterCount: content.length,
     sourceUrl: terms.url || null,
     repository: 'ToS;DR',
@@ -242,6 +628,7 @@ async function getDocument(serviceId: string, documentId: string, response: Serv
   })
 }
 
+/** Cached GET against the ToS;DR API. 20 s timeout; upstream errors mapped by {@link tosdrError}. */
 async function tosdrJson<T>(path: string, ttl: number): Promise<T> {
   return cachedJson<T>(`tosdr:${path}`, ttl, async () => {
     const response = await fetch(`${TOSDR_API}${path}`, {
@@ -253,6 +640,14 @@ async function tosdrJson<T>(path: string, ttl: number): Promise<T> {
   })
 }
 
+/**
+ * Build (and cache) the index of every archived document.
+ *
+ * Reads the archive repo's full Git tree and keeps each blob whose path looks
+ * like `<Service Name>/<Document Type>.md`, capturing the service, type and
+ * repo path. A truncated tree is treated as an error rather than a partial
+ * index.
+ */
 async function getArchiveIndex(): Promise<ArchivedDocument[]> {
   return cachedJson<ArchivedDocument[]>('archive:index', CACHE_TTL_MS, async () => {
     const tree = await githubJson<GitHubTree>(
@@ -262,13 +657,18 @@ async function getArchiveIndex(): Promise<ArchivedDocument[]> {
     if (tree.truncated) throw serverError('The historical archive index was truncated.')
     return tree.tree.flatMap((item) => {
       const match = item.type === 'blob' ? item.path.match(/^([^/]+)\/(.+)\.md$/) : null
-      return match
-        ? [{ serviceName: match[1], termsType: match[2], path: item.path }]
-        : []
+      return match ? [{ serviceName: match[1], termsType: match[2], path: item.path }] : []
     })
   })
 }
 
+/**
+ * Match a ToS;DR service/document name pair to an entry in the archive index.
+ *
+ * ToS;DR and the Open Terms Archive name things differently ("Privacy Policy"
+ * vs "Privacy", "Google Inc." vs "Google"), so both sides are run through
+ * {@link comparableName} and compared on the normalised form.
+ */
 function findArchivedDocument(
   archive: ArchivedDocument[],
   serviceName: string,
@@ -283,6 +683,14 @@ function findArchivedDocument(
   )
 }
 
+/**
+ * Normalise a name for fuzzy comparison: lowercase, strip everything that is not
+ * a letter or digit, drop a trailing "service"/"services" for service names,
+ * and fold the common wordings of the two document types onto "terms" and
+ * "privacy".
+ *
+ * @param service `true` for a service name, `false` for a document-type name.
+ */
 function comparableName(value: string, service: boolean) {
   let normalized = value.toLowerCase().replace(/[^a-z0-9]+/g, '')
   if (service) normalized = normalized.replace(/services?$/, '')
@@ -291,6 +699,7 @@ function comparableName(value: string, service: boolean) {
     .replace(/privacystatement|privacynotice|privacypolicy/g, 'privacy')
 }
 
+/** Cached GET against the GitHub REST API (adds auth if `GITHUB_TOKEN` is set). 20 s timeout. */
 async function githubJson<T>(path: string, ttl: number): Promise<T> {
   return cachedJson<T>(`github:${path}`, ttl, async () => {
     const response = await fetch(`${GITHUB_API}${path}`, {
@@ -302,6 +711,7 @@ async function githubJson<T>(path: string, ttl: number): Promise<T> {
   })
 }
 
+/** Cached fetch of a file's raw contents at a specific commit from `raw.githubusercontent.com`. */
 async function archiveText(revision: string, path: string) {
   return cachedJson<string>(`archive:${revision}:${path}`, CONTENT_CACHE_TTL_MS, async () => {
     const response = await fetch(
@@ -313,6 +723,7 @@ async function archiveText(revision: string, path: string) {
   })
 }
 
+/** Standard GitHub API headers, with a bearer token when `GITHUB_TOKEN` is present. */
 function githubHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
@@ -323,18 +734,22 @@ function githubHeaders(): Record<string, string> {
   return headers
 }
 
+/** Map a failed GitHub response to a client-facing error (404 → not found, 403/429 → 503). */
 function githubError(response: Response): ApiError {
-  if (response.status === 404) return clientError(404, 'The requested historical version was not found.')
+  if (response.status === 404)
+    return clientError(404, 'The requested historical version was not found.')
   if (response.status === 403 || response.status === 429) {
     return clientError(503, 'Historical archive rate limit reached. Try again later.')
   }
   return serverError(`Historical archive request failed with ${response.status}.`)
 }
 
+/** Percent-encode each path segment while leaving the "/" separators intact. */
 function encodePath(path: string) {
   return path.split('/').map(encodeURIComponent).join('/')
 }
 
+/** Human-readable UTC date+time label for a version, or "Unknown date". */
 function formatVersionDate(value?: string) {
   if (!value) return 'Unknown date'
   return new Intl.DateTimeFormat('en-AU', {
@@ -344,26 +759,49 @@ function formatVersionDate(value?: string) {
   }).format(new Date(value))
 }
 
+/**
+ * Read `key` from {@link responseCache} if it is still fresh, otherwise run
+ * `loader`, store the result for `ttl` ms, and return it. If `loader` throws and
+ * a stale (expired) entry for `key` exists, that stale value is served instead
+ * of propagating the error- this keeps read endpoints up during a transient
+ * upstream outage (e.g. a ToS;DR rate limit) instead of amplifying it with
+ * every incoming request retrying the failing upstream call. Only successful
+ * loads refresh the cache. The cache is unbounded but entries are effectively
+ * self-limiting given the small, fixed set of upstream paths.
+ */
 async function cachedJson<T>(key: string, ttl: number, loader: () => Promise<T>): Promise<T> {
   const cached = responseCache.get(key)
   if (cached?.expiresAt && cached.expiresAt > Date.now()) return cached.value as T
-  const value = await loader()
-  responseCache.set(key, { expiresAt: Date.now() + ttl, value })
-  return value
+  try {
+    const value = await loader()
+    responseCache.set(key, { expiresAt: Date.now() + ttl, value })
+    return value
+  } catch (error) {
+    if (cached) return cached.value as T
+    throw error
+  }
 }
 
+/** Map a failed ToS;DR response to a client-facing error (404/422 → 4xx, 429 → 503). */
 function tosdrError(response: Response): ApiError {
   if (response.status === 404) return clientError(404, 'The requested ToS;DR data was not found.')
   if (response.status === 422) return clientError(400, 'The ToS;DR request was invalid.')
-  if (response.status === 429) return clientError(503, 'ToS;DR rate limit reached. Try again later.')
+  if (response.status === 429)
+    return clientError(503, 'ToS;DR rate limit reached. Try again later.')
   return serverError(`ToS;DR request failed with ${response.status}.`)
 }
 
+/** Parse a positive integer path parameter, throwing 400 with `label` on anything else. */
 function parseId(value: string, label: string) {
   if (!/^\d+$/.test(value)) throw clientError(400, `Invalid ${label} ID.`)
   return Number(value)
 }
 
+/**
+ * Fixed-window per-IP rate limiter. Each remote address gets {@link RATE_LIMIT}
+ * requests per {@link RATE_WINDOW_MS}; the window resets lazily on the first
+ * request after it expires. Over the limit throws 429.
+ */
 function enforceRateLimit(request: IncomingMessage) {
   const key = request.socket.remoteAddress || 'local'
   const now = Date.now()
@@ -376,6 +814,24 @@ function enforceRateLimit(request: IncomingMessage) {
   if (bucket.count > RATE_LIMIT) throw clientError(429, 'Too many requests. Try again shortly.')
 }
 
+function enforceComparisonRateLimit(request: IncomingMessage) {
+  const key = request.socket.remoteAddress || 'local'
+  const now = Date.now()
+  const bucket = comparisonBuckets.get(key)
+  if (!bucket || bucket.resetAt <= now) {
+    comparisonBuckets.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
+    return
+  }
+  bucket.count += 1
+  if (bucket.count > 10) throw clientError(429, 'AI comparison limit reached. Try again later.')
+}
+
+/**
+ * Set CORS and hardening headers on every response. The `Access-Control-Allow-
+ * Origin` header is echoed back only for `localhost`/`127.0.0.1` or an origin
+ * listed in `ALLOWED_ORIGINS`; other origins get no ACAO header (request blocked
+ * by the browser).
+ */
 function setCorsHeaders(request: IncomingMessage, response: ServerResponse) {
   const origin = request.headers.origin
   const isLocalOrigin = origin && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
@@ -384,11 +840,14 @@ function setCorsHeaders(request: IncomingMessage, response: ServerResponse) {
     response.setHeader('Vary', 'Origin')
   }
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-  response.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+  response.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
   response.setHeader('X-Content-Type-Options', 'nosniff')
   response.setHeader('Referrer-Policy', 'no-referrer')
+  response.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'")
+  response.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
 }
 
+/** Parse an optional integer query param, returning `fallback` when absent and throwing 400 when out of `[minimum, maximum]`. */
 function parseInteger(value: string | null, fallback: number, minimum: number, maximum: number) {
   if (value === null) return fallback
   const parsed = Number.parseInt(value, 10)
@@ -398,6 +857,7 @@ function parseInteger(value: string | null, fallback: number, minimum: number, m
   return parsed
 }
 
+/** `decodeURIComponent` that turns a malformed escape into a 400 instead of a throw. */
 function decodePathSegment(segment: string) {
   try {
     return decodeURIComponent(segment)
@@ -406,8 +866,9 @@ function decodePathSegment(segment: string) {
   }
 }
 
+/** Write a JSON response with the right headers; no-op if the response is already sent. */
 function sendJson(response: ServerResponse, status: number, payload: unknown) {
-  if (response.writableEnded) return
+  if (response.writableEnded || response.destroyed || !response.writable) return
   const body = JSON.stringify(payload)
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -416,19 +877,23 @@ function sendJson(response: ServerResponse, status: number, payload: unknown) {
   response.end(body)
 }
 
+/** End a response with a status code and no body (used for the CORS preflight). */
 function endEmpty(response: ServerResponse, status: number) {
   response.writeHead(status)
   response.end()
 }
 
+/** Build an error whose `message` is safe to show the client, tagged with an HTTP `statusCode`. */
 function clientError(statusCode: number, message: string): ApiError {
   return Object.assign(new Error(message), { statusCode })
 }
 
+/** Build a 502 error for upstream failures we cannot attribute to the caller. */
 function serverError(message: string): ApiError {
   return Object.assign(new Error(message), { statusCode: 502 })
 }
 
+/** Coerce any thrown value into an {@link ApiError}, defaulting to 500. */
 function normalizeError(error: unknown): ApiError {
   if (error instanceof Error) {
     const statusCode = 'statusCode' in error ? Number(error.statusCode) || 500 : 500
@@ -437,6 +902,7 @@ function normalizeError(error: unknown): ApiError {
   return Object.assign(new Error('Unknown server error.'), { statusCode: 500 })
 }
 
+/** Stop accepting connections and exit once in-flight requests drain. */
 function shutdown() {
   server.close(() => process.exit(0))
 }
