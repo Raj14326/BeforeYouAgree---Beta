@@ -185,6 +185,9 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
   const token = generation
   retrievingTerm.value[termType] = true
   retrievalErrors.value[termType] = ''
+  delete retrievals.value[termType]
+  delete analyses.value[termType]
+  delete findingFilters.value[termType]
   try {
     const term = selectedService.value.terms[termType]
     if (!term?.latestUrl) throw new Error('No archived version is available for this document.')
@@ -201,6 +204,13 @@ async function retrieveTerm(termType: string, versionUrl?: string) {
   } finally {
     if (token === generation) retrievingTerm.value[termType] = false
   }
+}
+
+/** Retry the exact latest/archived document selection that most recently failed. */
+function retryDocument(termType: string) {
+  if (retrievingTerm.value[termType]) return
+  const versionUrl = loadedVersionUrl.value[termType] ?? undefined
+  void autoLoadAndAnalyse(termType, versionUrl)
 }
 
 /**
@@ -449,6 +459,7 @@ export function useDocumentSession() {
     loadService,
     startUpload,
     openDocument,
+    retryDocument,
     isInitialLoading,
     toggleHistory,
     documentLabel,
