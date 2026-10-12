@@ -4,25 +4,10 @@
  * active document (chunk 3).
  */
 import { computed } from 'vue'
-import { motion } from 'motion-v'
 import { personalisedRiskScore } from '@/lib/personalised-risk-score'
 import type { Analysis, RiskFinding } from '@/types'
 import ClauseCard from './ClauseCard.vue'
 import PrivacyNutritionCard from './PrivacyNutritionCard.vue'
-
-/**
- * Cards fade/slide in one after another once analysis finishes. The base
- * stagger is 0.12s per card, but that alone would take ~2.4s+ across 20+
- * cards, so it's capped so the whole sequence still finishes within ~900ms.
- */
-const STAGGER_CHILDREN = 0.12
-const DELAY_CHILDREN = 0.2
-const MAX_STAGGER_TOTAL_S = 0.9
-
-const cardVariants = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0 },
-}
 
 const { analysis, filter, enabledCategoryIds, categoryPriority, riskPreferencesEnabled } = defineProps<{
   analysis: Analysis | null
@@ -80,19 +65,6 @@ function labelCount(label: RiskFinding['predictedLabel']) {
     ? finding.predictedLabel === 'risky' || finding.reviewCategories.length > 0
     : finding.predictedLabel === 'not_risky' && finding.reviewCategories.length === 0).length ?? 0
 }
-
-/** staggerChildren shrinks as the list grows so the full sequence stays under MAX_STAGGER_TOTAL_S. */
-const containerVariants = computed(() => {
-  const count = visibleFindings.value.length
-  const staggerChildren =
-    count > 1
-      ? Math.min(STAGGER_CHILDREN, (MAX_STAGGER_TOTAL_S - DELAY_CHILDREN) / (count - 1))
-      : STAGGER_CHILDREN
-  return {
-    hidden: {},
-    show: { transition: { staggerChildren, delayChildren: DELAY_CHILDREN } },
-  }
-})
 </script>
 
 <template>
@@ -130,19 +102,11 @@ const containerVariants = computed(() => {
         <div v-if="!visibleFindings.length" class="text-body-secondary small">
           {{ filter === 'risky' ? 'No clauses were flagged as risky or needing review.' : 'Every analysed clause was flagged as risky or needing review.' }}
         </div>
-        <motion.div
-          v-else
-          class="clauses-scroll"
-          :variants="containerVariants"
-          initial="hidden"
-          animate="show"
-        >
-          <motion.div
+        <div v-else class="clauses-scroll">
+          <div
             v-for="finding in visibleFindings"
             :key="`${finding.start}-${finding.end}-${finding.text}`"
-            layout="position"
-            :variants="cardVariants"
-            :transition="{ type: 'spring', stiffness: 500, damping: 40 }"
+            class="clause-fade-in"
           >
             <ClauseCard
               :finding="finding"
@@ -151,8 +115,8 @@ const containerVariants = computed(() => {
               :risk-preferences-enabled="riskPreferencesEnabled"
               @show-in-text="emit('show-in-text', finding)"
             />
-          </motion.div>
-        </motion.div>
+          </div>
+        </div>
 
         <p class="text-body-secondary small mb-0 mt-2">
           Automated prediction, labelled by category where applicable; not legal advice.
@@ -167,5 +131,26 @@ const containerVariants = computed(() => {
   max-height: 460px;
   overflow-y: auto;
   padding-right: 0.25rem;
+}
+
+/*
+ * Plain CSS fade on mount (replaced motion-v stagger + FLIP, which could leave
+ * cards stuck at opacity 0). Re-sorting keeps keyed elements, so only newly
+ * shown cards fade; if the animation never runs, the card is simply visible.
+ */
+.clause-fade-in {
+  animation: clause-fade-in 200ms ease-out;
+}
+
+@keyframes clause-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clause-fade-in {
+    animation: none;
+  }
 }
 </style>
