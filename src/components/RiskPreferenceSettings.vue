@@ -23,6 +23,7 @@ const { dialog, isOpen, open, close, onClose, onPointerdown, onClick } = useModa
     class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1"
     aria-haspopup="dialog"
     aria-controls="risk-preference-settings"
+    data-tour="risk-preferences"
     :aria-expanded="isOpen"
     @click="open"
   >

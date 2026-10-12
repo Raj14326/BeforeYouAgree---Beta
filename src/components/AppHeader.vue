@@ -1,14 +1,14 @@
 <script setup lang="ts">
 /**
- * AppHeader.vue: brand + quick guide + risk preferences + theme toggle, shared by every view
+ * AppHeader.vue: brand + tour replay + risk preferences + theme toggle, shared by every view
  * after the landing page. Navigation between steps (and to Compare) lives in
  * FlowStepper, just below. Every class used here (app-shell, brand-lockup,
  * brand-logo, brand-wordmark) is a global style in src/assets/main.css.
  */
 import { motion } from 'motion-v'
 import logoUrl from '@/assets/BYA_logo.png'
-import QuickGuide from '@/components/QuickGuide.vue'
 import RiskPreferenceSettings from '@/components/RiskPreferenceSettings.vue'
+import { restartTour } from '@/composables/useOnboardingTour'
 
 const { theme } = defineProps<{
   theme: 'light' | 'dark'
@@ -27,7 +27,15 @@ const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
         <span class="brand-wordmark">Before You Agree</span>
       </RouterLink>
       <div class="ms-auto d-flex align-items-center gap-2">
-        <QuickGuide />
+        <button
+          type="button"
+          class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-1"
+          data-tour="tour-button"
+          @click="restartTour"
+        >
+          <i class="bi bi-signpost-2" aria-hidden="true"></i>
+          <span><span class="d-none d-sm-inline">Take the </span>Tour</span>
+        </button>
         <RiskPreferenceSettings />
         <motion.button
           type="button"

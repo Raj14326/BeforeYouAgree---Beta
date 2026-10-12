@@ -121,7 +121,7 @@ function labelCount(label: RiskFinding['predictedLabel']) {
               @click="focusedCategoryId = null"
             ></button>
           </div>
-          <div v-else class="d-flex align-items-center gap-2">
+          <div v-else class="d-flex align-items-center gap-2" data-tour="clause-filter">
             <label for="clause-filter" class="small text-body-secondary">View</label>
             <select
               id="clause-filter"
@@ -143,6 +143,7 @@ function labelCount(label: RiskFinding['predictedLabel']) {
           :enabled-category-ids="enabledCategoryIds"
           :risk-preferences-enabled="riskPreferencesEnabled"
           class="mb-3"
+          data-tour="nutrition-card"
         />
 
         <div v-if="!visibleFindings.length" class="text-body-secondary small">
@@ -150,9 +151,10 @@ function labelCount(label: RiskFinding['predictedLabel']) {
         </div>
         <div v-else class="clauses-scroll">
           <div
-            v-for="finding in visibleFindings"
+            v-for="(finding, index) in visibleFindings"
             :key="`${finding.start}-${finding.end}-${finding.text}`"
             class="clause-fade-in"
+            :data-tour="index === 0 ? 'first-clause' : undefined"
           >
             <ClauseCard
               :finding="finding"
