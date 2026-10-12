@@ -9,13 +9,18 @@ const MAX_REDIRECTS = 5
 export type PolicyFetchErrorCode = 'URL_INVALID' | 'SSRF_BLOCKED' | 'HTTP_TIMEOUT' | 'ACCESS_DENIED'
 
 export class PolicyFetchError extends Error {
+  readonly code: PolicyFetchErrorCode
+  readonly statusCode: number
+
   constructor(
-    public readonly code: PolicyFetchErrorCode,
+    code: PolicyFetchErrorCode,
     message: string,
-    public readonly statusCode: number,
+    statusCode: number,
   ) {
     super(message)
     this.name = 'PolicyFetchError'
+    this.code = code
+    this.statusCode = statusCode
   }
 }
 
