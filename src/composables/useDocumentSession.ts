@@ -242,6 +242,11 @@ async function analyseTerm(termType: string) {
   }
 }
 
+/** Retry analysis using the document already retrieved, without fetching it again. */
+function retryAnalysis(termType: string) {
+  void analyseTerm(termType)
+}
+
 /** Retrieve a document (optionally a specific archived version) then immediately analyse it. */
 async function autoLoadAndAnalyse(termType: string, versionUrl?: string) {
   loadedVersionUrl.value[termType] = versionUrl ?? null
@@ -460,6 +465,7 @@ export function useDocumentSession() {
     startUpload,
     openDocument,
     retryDocument,
+    retryAnalysis,
     isInitialLoading,
     toggleHistory,
     documentLabel,
