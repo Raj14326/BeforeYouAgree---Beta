@@ -15,6 +15,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import BrandAvatar from '@/components/BrandAvatar.vue'
 import FlowBar from '@/components/FlowBar.vue'
 import { useDocumentSession } from '@/composables/useDocumentSession'
+import { useTourChapter } from '@/composables/useOnboardingTour'
 import { useTheme } from '@/composables/useTheme'
 import { reviewRoute } from '@/lib/flow-routes'
 
@@ -38,6 +39,13 @@ const {
 const servicePath = computed(() => String(route.params.servicePath))
 const hintedName = computed(() => (typeof route.query.name === 'string' ? route.query.name : servicePath.value))
 const availableCount = computed(() => termEntries.value.filter(([, term]) => term.available).length)
+/** The tour's last bubble here points at this card. */
+const firstAvailableTerm = computed(() => termEntries.value.find(([, term]) => term.available)?.[0])
+
+useTourChapter(
+  'document',
+  computed(() => Boolean(selectedService.value && !isServiceLoading.value && !serviceError.value)),
+)
 
 watch(
   servicePath,
@@ -99,12 +107,13 @@ function formattedUpdatedAt(value: string | null) {
         ToS;DR doesn't have any documents archived for {{ selectedService.name }} yet.
       </div>
 
-      <ul v-else class="document-choices list-unstyled mb-0">
+      <ul v-else class="document-choices list-unstyled mb-0" data-tour="document-list">
         <li v-for="[termType, term] in termEntries" :key="termType">
           <button
             type="button"
             class="document-choice card shadow-sm w-100 text-start"
             :disabled="!term.available"
+            :data-tour="termType === firstAvailableTerm ? 'first-document' : undefined"
             @click="openDocument(termType)"
           >
             <span class="card-body d-flex align-items-center gap-3 w-100">

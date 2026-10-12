@@ -73,6 +73,14 @@ function togglePrivacyGroup() {
   privacyCategories.value.forEach((category) => (category.enabled = nextValue))
 }
 
+// Turning preferences on starts from every category enabled; turning them off
+// leaves the toggles as they were.
+watch(riskPreferencesEnabled, (enabled) => {
+  if (!enabled) return
+  for (const item of topLevelPreferences.value) if (item.kind === 'category') item.category.enabled = true
+  privacyCategories.value.forEach((category) => (category.enabled = true))
+})
+
 // Recompute the emitted set whenever any individual card flips.
 watch(
   [topLevelPreferences, privacyCategories],
