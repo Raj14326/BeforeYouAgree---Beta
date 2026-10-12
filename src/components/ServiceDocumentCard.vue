@@ -56,6 +56,7 @@ const emit = defineEmits<{
   'update:selectedVersion': [value: string]
   'retrieve-version': []
   'retry-retrieval': []
+  'retry-analysis': []
   /** Add the loaded document to compare, or remove it if it's already there. */
   'toggle-compare': []
   /** Same, for the version selected in the History popover. */
@@ -92,7 +93,7 @@ function originalDocumentId(value: string) {
           <span>{{ formattedUpdatedAt(retrieval?.fetchDate ?? term.updatedAt) }}</span>
           <template v-if="retrieval">
             <span aria-hidden="true">·</span>
-            <span>{{ retrieval.characterCount.toLocaleString() }} characters</span>
+            <span>{{ retrieval.characterCount.toLocaleString('en-AU') }} characters</span>
           </template>
           <template v-if="term.sourceUrl">
             <span aria-hidden="true">·</span>
@@ -113,7 +114,17 @@ function originalDocumentId(value: string) {
             <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Retry
           </button>
         </div>
-        <div v-if="analysisError" class="text-danger small mt-1">{{ analysisError }}</div>
+        <div v-if="analysisError" class="d-flex flex-wrap align-items-center gap-2 mt-1">
+          <span class="text-danger small">{{ analysisError }}</span>
+          <button
+            type="button"
+            class="btn btn-sm btn-outline-danger py-0"
+            :disabled="isAnalysing"
+            @click="emit('retry-analysis')"
+          >
+            <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Retry
+          </button>
+        </div>
       </div>
 
       <div class="d-flex flex-wrap justify-content-end align-items-center gap-2 position-relative">

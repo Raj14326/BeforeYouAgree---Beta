@@ -49,4 +49,15 @@ describe('ServiceDocumentCard', () => {
     await wrapper.get('button.btn-outline-danger').trigger('click')
     expect(wrapper.emitted('retry-retrieval')).toHaveLength(1)
   })
+
+  it('formats character counts for Australia and offers retry after analysis failure', async () => {
+    const wrapper = mountCard({
+      retrieval: { ...retrieval, characterCount: 251_794 },
+      analysisError: 'NetworkError when attempting to fetch resource.',
+    })
+
+    expect(wrapper.text()).toContain('251,794 characters')
+    await wrapper.get('button.btn-outline-danger').trigger('click')
+    expect(wrapper.emitted('retry-analysis')).toHaveLength(1)
+  })
 })
