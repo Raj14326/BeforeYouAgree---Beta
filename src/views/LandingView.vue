@@ -38,7 +38,7 @@ const HIGHLIGHT_CATEGORIES = [
     description: 'Can close your account anytime, no reason given.',
   },
   {
-    icon: 'bi-gavel',
+    icon: 'bi-bank',
     name: 'Arbitration',
     description: 'You give up the right to sue or join a class action.',
   },
