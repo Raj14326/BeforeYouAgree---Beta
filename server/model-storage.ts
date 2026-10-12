@@ -24,7 +24,7 @@ export async function ensureModelAvailable() {
   if (!missing.length) return
 
   const bucket = process.env.MODEL_S3_BUCKET
-  const prefix = (process.env.MODEL_S3_PREFIX || 'bya-legalbert-small-unfair-tos')
+  const prefix = (process.env.MODEL_S3_PREFIX || 'bya-legalbert-v2-balanced')
     .replace(/^\/+|\/+$/g, '')
   if (!bucket) {
     throw new Error(

@@ -1,45 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { useModalDialog } from '@/composables/useModalDialog'
 
-const dialog = ref<HTMLDialogElement | null>(null)
-const isOpen = ref(false)
-let pointerStartedOutside = false
-
-function openGuide() {
-  if (!dialog.value) return
-  dialog.value.showModal()
-  isOpen.value = true
-}
-
-function closeGuide() {
-  dialog.value?.close()
-}
-
-function resetGuide() {
-  isOpen.value = false
-  pointerStartedOutside = false
-}
-
-function isOutsidePanel(event: MouseEvent) {
-  const bounds = dialog.value?.getBoundingClientRect()
-  if (!bounds) return false
-  return (
-    event.clientX < bounds.left ||
-    event.clientX > bounds.right ||
-    event.clientY < bounds.top ||
-    event.clientY > bounds.bottom
-  )
-}
-
-function trackPointerStart(event: PointerEvent) {
-  pointerStartedOutside = isOutsidePanel(event)
-}
-
-function dismissBackdrop(event: MouseEvent) {
-  // A drag that begins inside the panel should not dismiss the guide.
-  if (pointerStartedOutside && isOutsidePanel(event)) closeGuide()
-  pointerStartedOutside = false
-}
+const {
+  dialog,
+  isOpen,
+  open: openGuide,
+  close: closeGuide,
+  onClose: resetGuide,
+  onPointerdown: trackPointerStart,
+  onClick: dismissBackdrop,
+} = useModalDialog()
 
 function keepFocusInGuide(event: KeyboardEvent) {
   if (event.key !== 'Tab') return

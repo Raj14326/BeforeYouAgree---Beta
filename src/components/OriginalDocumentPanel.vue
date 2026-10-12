@@ -1,17 +1,10 @@
 <script setup lang="ts">
-/**
- * OriginalDocumentPanel.vue: the raw document text for the active document
- * (chunk 4). Collapsed by default; expands on toggle or when a clause's
- * "Show in original text" scrolls to it (handled by the parent, which sets
- * `open` and waits a tick before scrolling).
- */
 const { html, open, panelId, hasRiskyFindings } = defineProps<{
   html: string
   open: boolean
   panelId: string
   hasRiskyFindings: boolean
 }>()
-
 </script>
 
 <template>
@@ -21,20 +14,38 @@ const { html, open, panelId, hasRiskyFindings } = defineProps<{
         <mark class="clause-mark">Highlighted</mark> passages are the clauses flagged as risky.
       </span>
     </div>
-    <pre
+    <article
       :id="panelId"
-      class="border rounded bg-body-tertiary p-3 mb-0 mt-2"
+      class="document-content border rounded bg-body-tertiary p-3 mb-0 mt-2"
       tabindex="0"
       aria-label="Retrieved document text with risky clauses highlighted"
       v-html="html"
-    ></pre>
+    ></article>
   </section>
 </template>
 
 <style scoped>
-pre {
+.document-content {
   max-height: 480px;
   overflow: auto;
-  white-space: pre-wrap;
+  line-height: 1.65;
+}
+
+.document-content :deep(h3) {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.document-content :deep(:is(h3, p):first-child) {
+  margin-top: 0;
+}
+
+.document-content :deep(p) {
+  margin: 0 0 0.85rem;
+}
+
+.document-content :deep(:is(ul, ol)) {
+  margin: 0 0 1rem;
+  padding-left: 1.5rem;
 }
 </style>

@@ -14,6 +14,13 @@ export type Term = {
 export type Declaration = { name: string; terms: Record<string, Term> }
 export type Service = { name: string; path: string }
 export type VersionOption = { id: string; updatedAt: string | null; label: string; url: string }
+export type DocumentContext = {
+  start: number
+  end: number
+  text: string
+  headingStart?: number
+  headingEnd?: number
+}
 export type Retrieval = {
   format: 'plain_text'
   id: string
@@ -23,6 +30,7 @@ export type Retrieval = {
   fetchDate: string | null
   characterCount: number
   content: string
+  contexts?: DocumentContext[]
   repository: string
   repositoryUrl: string
 }
@@ -30,11 +38,14 @@ export type CategoryFinding = { id: string; name: string; score: number }
 export type RiskLevel = 'low' | 'medium' | 'high'
 export type RiskFinding = {
   text: string
+  context?: string
+  contextualText?: string
   start: number
   end: number
   occurrenceCount: number
   occurrenceStarts: number[]
   categories: CategoryFinding[]
+  categoryScores?: Record<string, number>
   predictedLabel: 'risky' | 'not_risky'
   riskLevel: RiskLevel
   riskLevelMessage: string
@@ -45,6 +56,36 @@ export type Analysis = {
   clauseCount: number
   riskyClauseCount: number
   findings: RiskFinding[]
+}
+
+export type ComparisonEvidence = {
+  id: string
+  documentId: string
+  documentName: string
+  categoryId: string
+  categoryName: string
+  source: 'flagged' | 'retrieved'
+  text: string
+  context?: string
+  confidence?: number
+  similarity?: number
+}
+export type ComparisonSummary = {
+  winnerDocumentId: string | null
+  winnerDocumentName: string
+  overview: string
+  comparisons: Array<{
+    categoryId: string
+    categoryName: string
+    conclusion: 'both' | 'one_only' | 'different' | 'insufficient'
+    betterDocumentId: string | null
+    betterDocumentName: string
+    summary: string
+    evidenceIds: string[]
+  }>
+  caveat: string
+  evidence: ComparisonEvidence[]
+  model: string
 }
 
 export const RISK_LEVEL_LABELS: Record<RiskLevel, string> = {

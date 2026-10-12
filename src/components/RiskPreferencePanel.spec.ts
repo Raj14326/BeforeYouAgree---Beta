@@ -1,10 +1,10 @@
 import { mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import RiskPreferenceSidebar from './RiskPreferenceSidebar.vue'
+import RiskPreferencePanel from './RiskPreferencePanel.vue'
 import { ALL_CATEGORY_IDS } from '@/lib/risk-categories'
 
-function mountSidebar() {
-  return mount(RiskPreferenceSidebar, {
+function mountPanel() {
+  return mount(RiskPreferencePanel, {
     attachTo: document.body,
     props: {
       enabledCategoryIds: new Set(ALL_CATEGORY_IDS),
@@ -14,27 +14,18 @@ function mountSidebar() {
   })
 }
 
-describe('RiskPreferenceSidebar information popover', () => {
+describe('RiskPreferencePanel information popover', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn().mockReturnValue({
-        matches: true,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }),
-    )
   })
 
   afterEach(() => {
     document.body.innerHTML = ''
     vi.useRealTimers()
-    vi.unstubAllGlobals()
   })
 
   it('opens category information after hovering for half a second', async () => {
-    const wrapper = mountSidebar()
+    const wrapper = mountPanel()
     const trigger = wrapper.get('[aria-label="About Limitation of liability"]')
 
     await trigger.trigger('mouseenter')
@@ -52,7 +43,7 @@ describe('RiskPreferenceSidebar information popover', () => {
   })
 
   it('cancels opening when the pointer leaves before one second', async () => {
-    const wrapper = mountSidebar()
+    const wrapper = mountPanel()
     const trigger = wrapper.get('[aria-label="About Limitation of liability"]')
 
     await trigger.trigger('mouseenter')
@@ -66,7 +57,7 @@ describe('RiskPreferenceSidebar information popover', () => {
   })
 
   it('closes the information and has no close button when the pointer leaves', async () => {
-    const wrapper = mountSidebar()
+    const wrapper = mountPanel()
     const trigger = wrapper.get('[aria-label="About Limitation of liability"]')
 
     await trigger.trigger('mouseenter')
@@ -84,7 +75,7 @@ describe('RiskPreferenceSidebar information popover', () => {
   it('turns preferences off and on without changing individual toggles or order', async () => {
     const enabled = new Set(ALL_CATEGORY_IDS.filter((id) => id !== 'unilateral_change'))
     const priority = [...ALL_CATEGORY_IDS].reverse()
-    const wrapper = mount(RiskPreferenceSidebar, {
+    const wrapper = mount(RiskPreferencePanel, {
       props: {
         enabledCategoryIds: enabled,
         categoryPriority: priority,
