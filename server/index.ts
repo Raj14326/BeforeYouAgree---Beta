@@ -373,19 +373,7 @@ async function listServices(url: URL, response: ServerResponse) {
     throw serverError('Service catalogues are temporarily unavailable.')
 
   const tosdr = tosdrResult.status === 'fulfilled' ? tosdrResult.value : { services: [], total: 0 }
-  const australianSummaries = australianResult.status === 'fulfilled' ? australianResult.value : []
-  // The catalogue list omits logo_url. Enrich only the first visible search matches
-  // from the detail endpoint, in parallel, and reuse the normal entity cache.
-  const enrichedAustralian = query
-    ? await Promise.all(australianSummaries.slice(0, 10).map((summary) =>
-        cachedJson(
-          `australian:entity:${summary.slug}`,
-          CACHE_TTL_MS,
-          () => getAustralianEntity(summary.slug),
-        ).catch(() => summary),
-      ))
-    : []
-  const australian = [...enrichedAustralian, ...australianSummaries.slice(enrichedAustralian.length)]
+  const australian = australianResult.status === 'fulfilled' ? australianResult.value : []
   const data = [
     ...tosdr.services
     .filter((service) => Number.isInteger(service.id) && service.name)

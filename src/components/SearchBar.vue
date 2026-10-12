@@ -32,6 +32,19 @@ const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 } as const
 /** Shared with the wrapper's `layout` animation, so the float-up/settle-back glide matches this spring. */
 const SPOTLIGHT_SPRING = { type: 'spring', stiffness: 300, damping: 30 } as const
 
+const FEATURED_SERVICES: Service[] = [
+  { name: 'TikTok', path: '1448', source: 'tosdr' },
+  { name: 'CommBank', path: 'au:commbank', source: 'australian' },
+  { name: 'Instagram', path: '219', source: 'tosdr' },
+  { name: 'YouTube', path: '274', source: 'tosdr' },
+  { name: 'Facebook', path: '182', source: 'tosdr' },
+  { name: 'WhatsApp', path: '198', source: 'tosdr' },
+  { name: 'Optus', path: 'au:optus', source: 'australian' },
+  { name: 'Telstra', path: 'au:telstra', source: 'australian' },
+  { name: 'Woolworths', path: 'au:woolworths', source: 'australian' },
+  { name: 'Snap Inc. (Snapchat)', path: '311', source: 'tosdr' },
+]
+
 /** Distinct per variant, so the label targets the right input if both ever render on one page. */
 const inputId = compact ? 'service-compact' : 'service'
 const query = ref('')
@@ -40,11 +53,14 @@ const isOpen = ref(false)
 const activeIndex = ref(-1)
 const error = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
+const featuredServices = ref<Service[]>(FEATURED_SERVICES)
 /** Remote results are supplemental: locally loaded services always remain immediately searchable. */
 const remoteSearch = ref<{ query: string; services: Service[] } | null>(null)
 const searchCache = new Map<string, Service[]>()
+const logoCache = new Map<string, string | null>()
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let searchController: AbortController | undefined
+let logoController: AbortController | undefined
 
 /**
  * Relevance tier for a service name against the typed needle: exact match,
@@ -62,7 +78,7 @@ function matchRank(name: string, needle: string): number {
 /** Up to 10 services matching the current query (or the first 10 when empty), most relevant first. */
 const suggestions = computed(() => {
   const needle = query.value.trim().toLowerCase()
-  if (!needle) return services.slice(0, 10)
+  if (!needle) return featuredServices.value
 
   const localMatches = services.filter((service) => service.name.toLowerCase().includes(needle))
   const matchingRemote = remoteSearch.value?.query === needle ? remoteSearch.value.services : []
@@ -84,13 +100,14 @@ const suggestions = computed(() => {
     .slice(0, 10)
 })
 
-/** On each keystroke: open the dropdown, clear any selection, and debounce a search by 250 ms (min 2 chars). */
+/** On each keystroke: show local matches immediately and debounce remote search briefly (min 2 chars). */
 function handleInput() {
   isOpen.value = true
   activeIndex.value = -1
   error.value = ''
   clearTimeout(searchTimer)
   searchController?.abort()
+  logoController?.abort()
   const needle = query.value.trim()
   if (needle.length < 2) {
     remoteSearch.value = null
@@ -101,11 +118,66 @@ function handleInput() {
   const cached = searchCache.get(normalizedNeedle)
   if (cached) {
     remoteSearch.value = { query: normalizedNeedle, services: cached }
+    hydrateAustralianLogos(normalizedNeedle, cached)
     return
   }
 
   // Local matches are already visible; fetch the wider upstream catalogue shortly after typing settles.
-  searchTimer = setTimeout(() => searchServices(needle), 150)
+  searchTimer = setTimeout(() => searchServices(needle), 90)
+}
+
+function updateCachedLogo(searchQuery: string, servicePath: string, logoUrl: string | null) {
+  if (!searchQuery) {
+    featuredServices.value = featuredServices.value.map((service) =>
+      service.path === servicePath ? { ...service, logoUrl } : service,
+    )
+    return
+  }
+  const cached = searchCache.get(searchQuery)
+  if (!cached) return
+  const updated = cached.map((service) =>
+    service.path === servicePath ? { ...service, logoUrl } : service,
+  )
+  searchCache.set(searchQuery, updated)
+  if (remoteSearch.value?.query === searchQuery)
+    remoteSearch.value = { query: searchQuery, services: updated }
+}
+
+function handleFocus() {
+  isOpen.value = true
+  if (!query.value.trim()) hydrateAustralianLogos('', featuredServices.value)
+}
+
+/** Load logos after names are visible. Only the ten displayable matches are requested. */
+function hydrateAustralianLogos(searchQuery: string, results: Service[]) {
+  logoController?.abort()
+  const controller = new AbortController()
+  logoController = controller
+  for (const service of results.filter(({ source }) => source === 'australian').slice(0, 10)) {
+    if (service.logoUrl) {
+      logoCache.set(service.path, service.logoUrl)
+      continue
+    }
+    if (logoCache.has(service.path)) {
+      updateCachedLogo(searchQuery, service.path, logoCache.get(service.path) ?? null)
+      continue
+    }
+    void fetch(apiUrl(`/api/service/${encodeURIComponent(service.path)}`), { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return null
+        const payload = await response.json() as { logoUrl?: string | null }
+        return payload.logoUrl || null
+      })
+      .then((logoUrl) => {
+        if (controller.signal.aborted) return
+        logoCache.set(service.path, logoUrl)
+        updateCachedLogo(searchQuery, service.path, logoUrl)
+      })
+      .catch((cause) => {
+        if (!(cause instanceof DOMException && cause.name === 'AbortError'))
+          logoCache.set(service.path, null)
+      })
+  }
 }
 
 /**
@@ -122,7 +194,7 @@ async function searchServices(needle: string) {
       apiUrl(`/api/services?search=${encodeURIComponent(needle)}&limit=100`),
       { signal: controller.signal },
     )
-    if (!response.ok) return
+    if (!response.ok) return []
     const payload = (await response.json()) as {
       data: Array<{
         id: string
@@ -140,10 +212,13 @@ async function searchServices(needle: string) {
     searchCache.set(normalizedNeedle, results)
     if (query.value.trim().toLowerCase() === normalizedNeedle) {
       remoteSearch.value = { query: normalizedNeedle, services: results }
+      hydrateAustralianLogos(normalizedNeedle, results)
     }
+    return results
   } catch (cause) {
-    if (cause instanceof DOMException && cause.name === 'AbortError') return
+    if (cause instanceof DOMException && cause.name === 'AbortError') return []
     // Keep the last successful results while upstream search is unavailable.
+    return []
   } finally {
     if (searchController === controller) searchController = undefined
   }
@@ -177,14 +252,24 @@ watch(isOpen, (open) => {
   document.body.style.overflow = open ? 'hidden' : ''
 })
 
-/** Handle the search form submit: pick an exact name match, else the top suggestion, else show an error. */
-function submitSearch() {
-  const matchingRemote =
-    remoteSearch.value?.query === query.value.trim().toLowerCase()
-      ? remoteSearch.value.services
-      : []
-  const pool = [...services, ...matchingRemote]
-  const exact = pool.find((service) => service.name.toLowerCase() === query.value.trim().toLowerCase())
+/** Resolve an exact typed name on submit, without requiring the user to wait for or click a suggestion. */
+async function submitSearch() {
+  const typedName = query.value.trim()
+  const normalizedNeedle = typedName.toLowerCase()
+  let matchingRemote = remoteSearch.value?.query === normalizedNeedle
+    ? remoteSearch.value.services
+    : searchCache.get(normalizedNeedle) ?? []
+  let exact = [...featuredServices.value, ...services, ...matchingRemote]
+    .find((service) => service.name.toLowerCase() === normalizedNeedle)
+
+  if (!exact && typedName.length >= 2) {
+    clearTimeout(searchTimer)
+    searchController?.abort()
+    matchingRemote = await searchServices(typedName)
+    if (query.value.trim().toLowerCase() !== normalizedNeedle) return
+    exact = matchingRemote.find((service) => service.name.toLowerCase() === normalizedNeedle)
+  }
+
   const service = exact ?? suggestions.value[0]
   if (service) selectService(service)
   else error.value = 'No matching service is currently available from the connected policy catalogues.'
@@ -193,6 +278,7 @@ function submitSearch() {
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   searchController?.abort()
+  logoController?.abort()
   document.body.style.overflow = ''
 })
 
@@ -245,7 +331,7 @@ function selectService(service: Service) {
             autocomplete="off"
             placeholder="e.g. Google, Spotify, Discord"
             @input="handleInput"
-            @focus="isOpen = true"
+            @focus="handleFocus"
             @blur="isOpen = false"
             @keydown="handleKeydown"
           />
