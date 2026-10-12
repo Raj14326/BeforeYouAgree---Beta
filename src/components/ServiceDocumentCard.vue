@@ -27,6 +27,7 @@ const {
   loadingHistory,
   isCompared,
   isVersionCompared,
+  addingVersion,
 } = defineProps<{
   serviceName: string
   termType: string
@@ -48,6 +49,8 @@ const {
   isCompared: boolean
   /** Whether the version selected in the History popover is already in the compare list. */
   isVersionCompared: boolean
+  /** Whether a History version is being retrieved + analysed to add to compare. */
+  addingVersion: boolean
 }>()
 
 const emit = defineEmits<{
@@ -125,7 +128,9 @@ function originalDocumentId(value: string) {
           :aria-expanded="historyOpen"
           @click="emit('toggle-history')"
         >
-          <i class="bi bi-clock-history me-1"></i>History
+          <!-- Spinner keeps an add-to-compare visible even if the popover is closed mid-way. -->
+          <span v-if="addingVersion" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+          <i v-else class="bi bi-clock-history me-1"></i>History
         </button>
 
         <!-- Next-step actions sit at the right end, compare last. -->
@@ -159,7 +164,7 @@ function originalDocumentId(value: string) {
           <select
             class="form-select form-select-sm mb-2"
             :value="selectedVersion"
-            :disabled="loadingHistory"
+            :disabled="loadingHistory || addingVersion"
             @change="emit('update:selectedVersion', ($event.target as HTMLSelectElement).value)"
           >
             <option value="" disabled>
@@ -172,7 +177,7 @@ function originalDocumentId(value: string) {
           <button
             type="button"
             class="btn btn-sm btn-primary w-100"
-            :disabled="!selectedVersion || isLoading"
+            :disabled="!selectedVersion || isLoading || addingVersion"
             @click="emit('retrieve-version')"
           >
             Retrieve
@@ -180,12 +185,22 @@ function originalDocumentId(value: string) {
           <button
             type="button"
             class="btn btn-sm w-100 mt-2"
-            :class="isVersionCompared ? 'btn-outline-danger' : 'btn-outline-secondary'"
-            :disabled="!selectedVersion"
+            :class="isVersionCompared ? 'btn-outline-danger' : addingVersion ? 'btn-primary' : 'btn-outline-secondary'"
+            :disabled="!selectedVersion || addingVersion"
+            :aria-busy="addingVersion"
             @click="emit('toggle-version-compare')"
           >
-            {{ isVersionCompared ? 'Remove this version from compare' : 'Add this version to compare' }}
+            <template v-if="addingVersion">
+              <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+              Adding to compare…
+            </template>
+            <template v-else>
+              {{ isVersionCompared ? 'Remove this version from compare' : 'Add this version to compare' }}
+            </template>
           </button>
+          <p v-if="addingVersion" class="small text-body-secondary mt-2 mb-0" role="status" aria-live="polite">
+            Retrieving and analysing this version. This can take a few seconds.
+          </p>
         </div>
       </div>
     </div>

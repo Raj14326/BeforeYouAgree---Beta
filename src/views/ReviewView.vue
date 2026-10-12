@@ -177,6 +177,7 @@ async function showInText(finding: RiskFinding) {
           :loading-history="loadingHistoryTerm === termType"
           :is-compared="session.isCurrentCompared(termType)"
           :is-version-compared="session.isSelectedVersionCompared(termType)"
+          :adding-version="Boolean(session.addingVersionUrl.value[termType])"
           @toggle-full-document="originalDocOpen = !originalDocOpen"
           @toggle-history="session.toggleHistory(termType)"
           @update:selected-version="selectedVersions[termType] = $event"

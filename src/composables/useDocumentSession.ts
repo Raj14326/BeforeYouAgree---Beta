@@ -51,6 +51,8 @@ const loadedVersionUrl = ref<Record<string, string | null>>({})
  */
 const uploadCompareId = ref<string | null>(null)
 const loadingHistoryTerm = ref<string | null>(null)
+/** Version URL each term's History popover is currently fetching + analysing to add to compare. */
+const addingVersionUrl = ref<Record<string, string>>({})
 
 /**
  * Bumped on every reset; async work captures it and drops its result if the
@@ -83,6 +85,7 @@ function resetSession() {
   versions.value = {}
   selectedVersions.value = {}
   loadedVersionUrl.value = {}
+  addingVersionUrl.value = {}
   uploadCompareId.value = null
   activeTerm.value = null
 }
@@ -345,6 +348,7 @@ function toggleCurrentCompare(termType: string) {
 
 /** History popover's button: adds the selected version, or removes it if it's already in the compare list. */
 async function toggleVersionCompare(termType: string) {
+  if (addingVersionUrl.value[termType]) return
   const id = selectedVersionCompareId(termType)
   if (id && compareList.has(id)) compareList.remove(id)
   else await addVersionToCompare(termType)
@@ -394,9 +398,12 @@ async function addVersionToCompare(termType: string) {
   if (!versionUrl || !service) return
   const sourceRef = catalogueSourceRef(termType, versionUrl)
   if (!sourceRef) return
+  const startedGeneration = generation
+  addingVersionUrl.value[termType] = versionUrl
   try {
     const retrieval = await fetchRetrieval(versionUrl)
     const analysis = await fetchAnalysis(retrieval.content, retrieval.contexts, service.name, termType)
+    if (startedGeneration !== generation) return
     const versionLabel = versions.value[termType]?.find((version) => version.url === versionUrl)?.label ?? null
     compareList.add({
       displayName: compareDisplayName(termType, versionLabel),
@@ -408,8 +415,11 @@ async function addVersionToCompare(termType: string) {
       sourceRef,
     })
   } catch (cause) {
+    if (startedGeneration !== generation) return
     retrievalErrors.value[termType] =
       cause instanceof Error ? cause.message : 'That version could not be added to compare.'
+  } finally {
+    if (startedGeneration === generation) delete addingVersionUrl.value[termType]
   }
 }
 
@@ -446,6 +456,7 @@ export function useDocumentSession() {
     selectedVersions,
     loadedVersionUrl,
     loadingHistoryTerm,
+    addingVersionUrl,
     loadService,
     startUpload,
     openDocument,
