@@ -72,7 +72,7 @@ describe('RiskPreferencePanel information popover', () => {
     wrapper.unmount()
   })
 
-  it('turns preferences off and on without changing individual toggles or order', async () => {
+  it('turns preferences off without changing individual toggles or order', async () => {
     const enabled = new Set(ALL_CATEGORY_IDS.filter((id) => id !== 'unilateral_change'))
     const priority = [...ALL_CATEGORY_IDS].reverse()
     const wrapper = mount(RiskPreferencePanel, {
@@ -83,14 +83,29 @@ describe('RiskPreferencePanel information popover', () => {
       },
     })
 
-    const master = wrapper.get('[aria-label="Enable risk preferences"]')
-    await master.setValue(false)
+    await wrapper.get('[aria-label="Enable risk preferences"]').setValue(false)
     await wrapper.setProps({ riskPreferencesEnabled: false })
-    await master.setValue(true)
 
-    expect(wrapper.emitted('update:riskPreferencesEnabled')).toEqual([[false], [true]])
+    expect(wrapper.emitted('update:riskPreferencesEnabled')).toEqual([[false]])
     expect(wrapper.emitted('update:enabledCategoryIds')).toBeUndefined()
     expect(wrapper.emitted('update:categoryPriority')).toBeUndefined()
     expect(wrapper.get<HTMLInputElement>('#pref-unilateral_change').element.checked).toBe(false)
+  })
+
+  it('turns every category back on when preferences are turned on', async () => {
+    const wrapper = mount(RiskPreferencePanel, {
+      props: {
+        enabledCategoryIds: new Set(ALL_CATEGORY_IDS.filter((id) => id !== 'unilateral_change')),
+        categoryPriority: [...ALL_CATEGORY_IDS],
+        riskPreferencesEnabled: false,
+      },
+    })
+
+    await wrapper.get('[aria-label="Enable risk preferences"]').setValue(true)
+    await wrapper.setProps({ riskPreferencesEnabled: true })
+
+    expect(wrapper.get<HTMLInputElement>('#pref-unilateral_change').element.checked).toBe(true)
+    const emitted = wrapper.emitted<[Set<string>]>('update:enabledCategoryIds')
+    expect([...(emitted?.at(-1)?.[0] ?? [])].sort()).toEqual([...ALL_CATEGORY_IDS].sort())
   })
 })

@@ -76,7 +76,7 @@ const isCompareCurrent = computed(() => route.name === 'compare')
 </script>
 
 <template>
-  <nav class="flow-stepper" aria-label="Progress">
+  <nav class="flow-stepper" aria-label="Progress" data-tour="flow-stepper">
     <ol class="flow-steps">
       <li
         v-for="(step, index) in steps"
@@ -113,6 +113,7 @@ const isCompareCurrent = computed(() => route.name === 'compare')
       class="flow-step-target flow-compare"
       :class="{ 'flow-compare-current': isCompareCurrent }"
       :aria-current="isCompareCurrent ? 'page' : undefined"
+      data-tour="compare-link"
     >
       <span class="flow-step-marker" aria-hidden="true">
         <i class="bi bi-ui-checks-grid"></i>

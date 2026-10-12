@@ -12,11 +12,8 @@ export class PolicyFetchError extends Error {
   readonly code: PolicyFetchErrorCode
   readonly statusCode: number
 
-  constructor(
-    code: PolicyFetchErrorCode,
-    message: string,
-    statusCode: number,
-  ) {
+  // No parameter properties: Node's strip-only TS mode rejects them.
+  constructor(code: PolicyFetchErrorCode, message: string, statusCode: number) {
     super(message)
     this.name = 'PolicyFetchError'
     this.code = code

@@ -32,7 +32,7 @@ function mountCard(overrides: Record<string, unknown> = {}) {
       retrieval, analysis: undefined, fullDocumentOpen: false, isLoading: false,
       isAnalysing: false, retrievalError: '', analysisError: '', historyOpen: false,
       versions: undefined, selectedVersion: '', loadingHistory: false,
-      isCompared: false, isVersionCompared: false, ...overrides,
+      isCompared: false, isVersionCompared: false, addingVersion: false, ...overrides,
     },
   })
 }

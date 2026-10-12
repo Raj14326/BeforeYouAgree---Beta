@@ -53,3 +53,33 @@ describe('ClausesPanel ordering', () => {
     ])
   })
 })
+
+describe('ClausesPanel scorecard category focus', () => {
+  it('shows only the clicked category and clears back to the full list', async () => {
+    const wrapper = mount(ClausesPanel, {
+      props: {
+        analysis,
+        filter: 'risky',
+        enabledCategoryIds: new Set(['unilateral_change', 'arbitration']),
+        categoryPriority: ['unilateral_change', 'arbitration'],
+        riskPreferencesEnabled: false,
+      },
+    })
+    const clauseTexts = () => wrapper.findAll('.clause-card-text').map((node) => node.text())
+
+    const arbitrationRow = wrapper.get('[aria-label="Show only Arbitration clauses"]')
+    await arbitrationRow.trigger('click')
+    expect(clauseTexts()).toEqual(['Lower priority category but higher score'])
+    expect(arbitrationRow.attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('#clause-filter').exists()).toBe(false)
+
+    await wrapper.get('[aria-label="Clear Arbitration filter"]').trigger('click')
+    expect(clauseTexts()).toHaveLength(2)
+    expect(wrapper.find('#clause-filter').exists()).toBe(true)
+
+    // Clicking the focused row again also clears it.
+    await arbitrationRow.trigger('click')
+    await arbitrationRow.trigger('click')
+    expect(clauseTexts()).toHaveLength(2)
+  })
+})

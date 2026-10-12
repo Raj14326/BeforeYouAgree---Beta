@@ -22,6 +22,7 @@ import FlowBar from '@/components/FlowBar.vue'
 import OriginalDocumentPanel from '@/components/OriginalDocumentPanel.vue'
 import ServiceDocumentCard from '@/components/ServiceDocumentCard.vue'
 import { useDocumentSession } from '@/composables/useDocumentSession'
+import { useTourChapter } from '@/composables/useOnboardingTour'
 import { useRiskPreferences } from '@/composables/useRiskPreferences'
 import { useTheme } from '@/composables/useTheme'
 import { buildDocumentViewHtml, clauseId } from '@/lib/document-view'
@@ -60,6 +61,11 @@ const servicePath = computed(() => (isUploadRoute.value ? null : String(route.pa
 const termType = computed(() => (isUploadRoute.value ? activeTerm.value : String(route.params.termType)))
 const term = computed(() => (termType.value ? selectedService.value?.terms[termType.value] : undefined))
 const analysis = computed(() => (termType.value ? analyses.value[termType.value] : undefined))
+
+useTourChapter(
+  'review',
+  computed(() => Boolean(analysis.value && !isServiceLoading.value && !documentMissing.value)),
+)
 
 watch(
   () => [route.name, route.params.servicePath, route.params.termType, route.query.version],
@@ -177,6 +183,7 @@ async function showInText(finding: RiskFinding) {
           :loading-history="loadingHistoryTerm === termType"
           :is-compared="session.isCurrentCompared(termType)"
           :is-version-compared="session.isSelectedVersionCompared(termType)"
+          :adding-version="Boolean(session.addingVersionUrl.value[termType])"
           @toggle-full-document="originalDocOpen = !originalDocOpen"
           @toggle-history="session.toggleHistory(termType)"
           @update:selected-version="selectedVersions[termType] = $event"
