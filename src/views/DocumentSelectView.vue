@@ -86,7 +86,11 @@ function formattedUpdatedAt(value: string | null) {
     <template v-else>
       <section class="service-banner card border-0 shadow-sm mb-4">
         <div class="card-body p-4 p-md-5 d-flex flex-wrap align-items-center gap-3 gap-md-4">
-          <BrandAvatar :service-name="selectedService.name" size="xl" />
+          <BrandAvatar
+            :service-name="selectedService.name"
+            :logo-url="selectedService.logoUrl"
+            size="xl"
+          />
           <div class="flex-grow-1">
             <p class="eyebrow mb-1">STEP 2 · CHOOSE A DOCUMENT</p>
             <h1 class="h2 fw-bold mb-1">{{ selectedService.name }}</h1>

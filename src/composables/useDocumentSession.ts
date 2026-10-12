@@ -123,11 +123,13 @@ async function fetchService(service: Service) {
     if (!response.ok) throw new Error('Declaration unavailable')
     const payload = (await response.json()) as {
       name: string
+      logoUrl?: string | null
       terms: Array<{ type: string } & Term>
     }
     if (token !== generation) return
     selectedService.value = {
       name: payload.name,
+      logoUrl: payload.logoUrl,
       terms: Object.fromEntries(payload.terms.map(({ type, ...term }) => [type, term])),
     }
   } catch {
@@ -391,6 +393,7 @@ function addCurrentToCompare(termType: string) {
     uploadCompareId.value = compareList.add({
       displayName: compareDisplayName(termType),
       serviceName: service.name,
+      logoUrl: service.logoUrl,
       documentType: termType,
       analysis,
       content: retrieval.content,
@@ -409,6 +412,7 @@ function addCurrentToCompare(termType: string) {
   compareList.add({
     displayName: compareDisplayName(termType, versionLabel),
     serviceName: service.name,
+    logoUrl: service.logoUrl,
     documentType: termType,
     analysis,
     content: retrieval.content,
@@ -434,6 +438,7 @@ async function addVersionToCompare(termType: string) {
     compareList.add({
       displayName: compareDisplayName(termType, versionLabel),
       serviceName: service.name,
+      logoUrl: service.logoUrl,
       documentType: termType,
       analysis,
       content: retrieval.content,

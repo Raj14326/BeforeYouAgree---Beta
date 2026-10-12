@@ -40,7 +40,14 @@ async function loadCatalogue() {
   try {
     const response = await fetch(apiUrl('/api/services'))
     if (!response.ok) throw new Error('Catalogue unavailable')
-    const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
+    const payload = (await response.json()) as {
+      data: Array<{
+        id: string
+        name: string
+        logoUrl?: string | null
+        source?: Service['source']
+      }>
+    }
     services.value = payload.data.map((service) => ({ ...service, path: service.id }))
     if (!services.value.length) throw new Error('No services found')
   } catch {

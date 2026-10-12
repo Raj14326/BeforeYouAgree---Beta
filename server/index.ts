@@ -39,6 +39,11 @@ import { ensureModelAvailable } from './model-storage.ts'
 import type { DocumentContext } from './clauses.ts'
 import { compareWithGroq, type ComparisonDocument } from './comparison.ts'
 import { fetchPolicyUrl, PolicyFetchError } from './policy-url.ts'
+import {
+  getAustralianEntity,
+  listAustralianEntities,
+  type AustralianEntitySummary,
+} from './australian-policies.ts'
 
 type ApiError = Error & { statusCode: number }
 type ServiceSummary = { id: number; name: string; slug?: string; rating?: string }
@@ -137,6 +142,9 @@ const server = http.createServer(async (request, response) => {
     }
     if (segments.length === 3 && segments[0] === 'api' && segments[1] === 'service') {
       return await getService(segments[2], response)
+    }
+    if (segments.length === 3 && segments[0] === 'api' && segments[1] === 'australian-policy') {
+      return await getAustralianPolicy(segments[2], response)
     }
     if (segments.length === 4 && segments[0] === 'api' && segments[1] === 'versions') {
       return await listVersions(segments[2], segments[3], url, response)
@@ -343,31 +351,64 @@ server.listen(PORT, HOST, () => {
 async function listServices(url: URL, response: ServerResponse) {
   const query = (url.searchParams.get('search') || '').trim()
   const limit = parseInteger(url.searchParams.get('limit'), 100, 1, 500)
-  let services: ServiceSummary[]
-  let total: number
+  const tosdrRequest = query
+    ? tosdrJson<{ services?: ServiceSummary[] }>(
+        `/search/v5?query=${encodeURIComponent(query)}`,
+        CACHE_TTL_MS,
+      ).then((payload) => ({ services: payload.services || [], total: payload.services?.length || 0 }))
+    : tosdrJson<{ services?: ServiceSummary[]; page?: { total?: number } }>(
+        '/service/v3?page=1',
+        CACHE_TTL_MS,
+      ).then((payload) => ({
+        services: payload.services || [],
+        total: payload.page?.total || payload.services?.length || 0,
+      }))
+  const australianRequest = cachedJson<AustralianEntitySummary[]>(
+    `australian:entities:${query}:${Math.min(limit, 50)}`,
+    CACHE_TTL_MS,
+    () => listAustralianEntities(query, limit),
+  )
+  const [tosdrResult, australianResult] = await Promise.allSettled([tosdrRequest, australianRequest])
+  if (tosdrResult.status === 'rejected' && australianResult.status === 'rejected')
+    throw serverError('Service catalogues are temporarily unavailable.')
 
-  if (query) {
-    const payload = await tosdrJson<{ services?: ServiceSummary[] }>(
-      `/search/v5?query=${encodeURIComponent(query)}`,
-      CACHE_TTL_MS,
-    )
-    services = payload.services || []
-    total = services.length
-  } else {
-    const payload = await tosdrJson<{
-      services?: ServiceSummary[]
-      page?: { total?: number }
-    }>('/service/v3?page=1', CACHE_TTL_MS)
-    services = payload.services || []
-    total = payload.page?.total || services.length
-  }
-
-  const data = services
+  const tosdr = tosdrResult.status === 'fulfilled' ? tosdrResult.value : { services: [], total: 0 }
+  const australianSummaries = australianResult.status === 'fulfilled' ? australianResult.value : []
+  // The catalogue list omits logo_url. Enrich only the first visible search matches
+  // from the detail endpoint, in parallel, and reuse the normal entity cache.
+  const enrichedAustralian = query
+    ? await Promise.all(australianSummaries.slice(0, 10).map((summary) =>
+        cachedJson(
+          `australian:entity:${summary.slug}`,
+          CACHE_TTL_MS,
+          () => getAustralianEntity(summary.slug),
+        ).catch(() => summary),
+      ))
+    : []
+  const australian = [...enrichedAustralian, ...australianSummaries.slice(enrichedAustralian.length)]
+  const data = [
+    ...tosdr.services
     .filter((service) => Number.isInteger(service.id) && service.name)
+    .map(({ id, name, slug, rating }) => ({ id: String(id), name, slug, rating, source: 'tosdr' })),
+    ...australian
+      .filter(({ slug, name }) => slug && name)
+      .map(({ slug, name, category, latest_grade, logo_url }) => ({
+        id: `au:${slug}`,
+        name,
+        slug,
+        rating: latest_grade,
+        category,
+        logoUrl: logo_url || undefined,
+        source: 'australian',
+      })),
+  ]
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, limit)
-    .map(({ id, name, slug, rating }) => ({ id: String(id), name, slug, rating }))
-  return sendJson(response, 200, { data, count: data.length, total })
+  return sendJson(response, 200, {
+    data,
+    count: data.length,
+    total: tosdr.total + australian.length,
+  })
 }
 
 /**
@@ -380,6 +421,7 @@ async function listServices(url: URL, response: ServerResponse) {
  * Response: `{ id, name, rating, terms: [...] }`.
  */
 async function getService(serviceId: string, response: ServerResponse) {
+  if (serviceId.startsWith('au:')) return getAustralianService(serviceId.slice(3), response)
   const id = parseId(serviceId, 'service')
   const service = await tosdrJson<Service>(`/service/v3?id=${id}`, CACHE_TTL_MS)
   if (!service?.id || !service.name) throw clientError(404, 'Service not found.')
@@ -406,6 +448,64 @@ async function getService(serviceId: string, response: ServerResponse) {
     name: service.name,
     rating: service.rating || 'N/A',
     terms,
+  })
+}
+
+async function getAustralianService(slug: string, response: ServerResponse) {
+  const entity = await cachedJson(
+    `australian:entity:${slug}`,
+    CACHE_TTL_MS,
+    () => getAustralianEntity(slug),
+  )
+  if (!entity.slug || !entity.name || !entity.privacy_policy_url)
+    throw clientError(404, 'Australian privacy policy not found.')
+  const id = `au:${entity.slug}`
+  return sendJson(response, 200, {
+    id,
+    name: entity.name,
+    rating: entity.latest_grade || 'N/A',
+    logoUrl: entity.logo_url || null,
+    terms: [{
+      id: entity.slug,
+      type: 'Privacy Policy',
+      sourceUrl: entity.privacy_policy_url,
+      available: true,
+      latestUrl: `/api/australian-policy/${encodeURIComponent(entity.slug)}`,
+      updatedAt: entity.last_changed_date || entity.last_scan_date || null,
+      historyAvailable: false,
+      historyUrl: null,
+    }],
+  })
+}
+
+async function getAustralianPolicy(slug: string, response: ServerResponse) {
+  const entity = await cachedJson(
+    `australian:entity:${slug}`,
+    CACHE_TTL_MS,
+    () => getAustralianEntity(slug),
+  )
+  if (!entity.privacy_policy_url) throw clientError(404, 'Australian privacy policy not found.')
+  let policy
+  try {
+    policy = await fetchPolicyUrl(entity.privacy_policy_url)
+  } catch (cause) {
+    const safeError = cause instanceof PolicyFetchError
+      ? cause
+      : new PolicyFetchError('ACCESS_DENIED', 'The policy page could not be fetched.', 502)
+    throw clientError(safeError.statusCode, safeError.message)
+  }
+  return sendJson(response, 200, {
+    format: 'plain_text',
+    id: entity.scan_id || entity.slug,
+    serviceId: `au:${entity.slug}`,
+    termsType: 'Privacy Policy',
+    fetchDate: entity.last_changed_date || entity.last_scan_date || null,
+    content: policy.content,
+    contexts: policy.contexts,
+    characterCount: policy.content.length,
+    sourceUrl: entity.privacy_policy_url,
+    repository: 'Australian Privacy Score',
+    repositoryUrl: entity.privacy_policy_url,
   })
 }
 

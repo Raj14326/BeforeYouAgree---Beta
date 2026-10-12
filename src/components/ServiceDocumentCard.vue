@@ -11,6 +11,7 @@ import BrandAvatar from './BrandAvatar.vue'
 
 const {
   serviceName,
+  logoUrl,
   termType,
   title,
   term,
@@ -30,6 +31,7 @@ const {
   addingVersion,
 } = defineProps<{
   serviceName: string
+  logoUrl?: string | null
   termType: string
   /** Heading for the card, e.g. "Terms of service" or an upload's file name. */
   title: string
@@ -82,7 +84,7 @@ function originalDocumentId(value: string) {
 <template>
   <article class="card shadow-sm document-card">
     <div class="card-body d-flex flex-wrap align-items-center gap-3">
-      <BrandAvatar :service-name="serviceName" size="lg" />
+      <BrandAvatar :service-name="serviceName" :logo-url="logoUrl" size="lg" />
 
       <div class="flex-grow-1" style="min-width: 200px">
         <h2 class="h6 mb-1">{{ title }}</h2>

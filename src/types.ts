@@ -11,8 +11,13 @@ export type Term = {
   historyAvailable: boolean
   historyUrl: string | null
 }
-export type Declaration = { name: string; terms: Record<string, Term> }
-export type Service = { name: string; path: string }
+export type Declaration = { name: string; logoUrl?: string | null; terms: Record<string, Term> }
+export type Service = {
+  name: string
+  path: string
+  logoUrl?: string | null
+  source?: 'tosdr' | 'australian'
+}
 export type VersionOption = { id: string; updatedAt: string | null; label: string; url: string }
 export type DocumentContext = {
   start: number

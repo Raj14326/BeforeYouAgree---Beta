@@ -67,7 +67,9 @@ const suggestions = computed(() => {
   const localMatches = services.filter((service) => service.name.toLowerCase().includes(needle))
   const matchingRemote = remoteSearch.value?.query === needle ? remoteSearch.value.services : []
   const seen = new Set<string>()
-  const merged = [...localMatches, ...matchingRemote].filter((service) => {
+  // Put remote results first so their enriched metadata (such as an Australian
+  // catalogue logo URL) wins when the same service is already in the local list.
+  const merged = [...matchingRemote, ...localMatches].filter((service) => {
     if (seen.has(service.path)) return false
     seen.add(service.path)
     return true
@@ -121,8 +123,20 @@ async function searchServices(needle: string) {
       { signal: controller.signal },
     )
     if (!response.ok) return
-    const payload = (await response.json()) as { data: Array<{ id: string; name: string }> }
-    const results = payload.data.map((service) => ({ name: service.name, path: service.id }))
+    const payload = (await response.json()) as {
+      data: Array<{
+        id: string
+        name: string
+        logoUrl?: string | null
+        source?: Service['source']
+      }>
+    }
+    const results = payload.data.map((service) => ({
+      name: service.name,
+      path: service.id,
+      logoUrl: service.logoUrl,
+      source: service.source,
+    }))
     searchCache.set(normalizedNeedle, results)
     if (query.value.trim().toLowerCase() === normalizedNeedle) {
       remoteSearch.value = { query: normalizedNeedle, services: results }
@@ -173,7 +187,7 @@ function submitSearch() {
   const exact = pool.find((service) => service.name.toLowerCase() === query.value.trim().toLowerCase())
   const service = exact ?? suggestions.value[0]
   if (service) selectService(service)
-  else error.value = 'No matching service is currently available from ToS;DR.'
+  else error.value = 'No matching service is currently available from the connected policy catalogues.'
 }
 
 onBeforeUnmount(() => {
@@ -255,7 +269,7 @@ function selectService(service: Service) {
                 style="cursor: pointer"
                 @mousedown.prevent="selectService(service)"
               >
-                <BrandAvatar :service-name="service.name" />
+                <BrandAvatar :service-name="service.name" :logo-url="service.logoUrl" />
                 <span class="flex-grow-1">{{ service.name }}</span>
                 <i class="bi bi-chevron-right small text-body-secondary"></i>
               </li>
@@ -284,7 +298,7 @@ function selectService(service: Service) {
         <span class="spinner-border spinner-border-sm"></span> Loading service list…
       </span>
       <span v-else>
-        {{ services.length }} services from ToS;DR
+        {{ services.length }} services from connected policy catalogues
         <span v-if="catalogueIsFallback" class="badge text-bg-secondary ms-1">offline list</span>
       </span>
     </p>
