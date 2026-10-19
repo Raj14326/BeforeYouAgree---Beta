@@ -22,13 +22,23 @@ const categoryDefs = computed(() => rowsByEntry.value[0] ?? [])
 const summariesByCategory = computed(() => new Map(
   (summary?.comparisons ?? []).map((comparison) => [comparison.categoryId, comparison.summary]),
 ))
+
+/** A bare number in a cell reads as a score, so spell out that it's a clause count. */
+function clauseCount(occurrences: number) {
+  return `${occurrences} ${occurrences === 1 ? 'clause' : 'clauses'}`
+}
 </script>
 
 <template>
   <div v-if="entries.length" class="card shadow-sm">
     <div class="card-body">
       <h2 class="h6 mb-1">Risk category comparison</h2>
-      <p class="small text-body-secondary mb-3">Which categories were detected, across every compared document</p>
+      <p class="small text-body-secondary mb-2">Which categories were detected, across every compared document</p>
+      <p class="table-legend small text-body-secondary mb-3">
+        <span class="badge rounded-pill text-bg-danger">3 clauses</span>
+        = number of risky clauses flagged in that category
+        <span class="ms-2"><span class="text-body-tertiary">-</span> = none found</span>
+      </p>
       <div class="table-responsive">
         <table class="table table-sm comparison-table mb-0">
           <thead>
@@ -50,10 +60,11 @@ const summariesByCategory = computed(() => new Map(
                 </div>
               </td>
               <td v-for="(entry, colIndex) in entries" :key="entry.id" class="text-center">
-                <span v-if="rowsByEntry[colIndex]![rowIndex]!.detected" class="badge rounded-pill text-bg-danger">
-                  {{ rowsByEntry[colIndex]![rowIndex]!.occurrences }}
+                <span v-if="rowsByEntry[colIndex]![rowIndex]!.detected" class="badge rounded-pill text-bg-danger"
+                  :title="`${clauseCount(rowsByEntry[colIndex]![rowIndex]!.occurrences)} in ${entry.serviceName}'s ${entry.displayName} flagged as ${def.name}`">
+                  {{ clauseCount(rowsByEntry[colIndex]![rowIndex]!.occurrences) }}
                 </span>
-                <span v-else class="text-body-tertiary" aria-label="Not detected">-</span>
+                <span v-else class="text-body-tertiary" title="No clauses found in this category" aria-label="No clauses found">-</span>
               </td>
             </tr>
           </tbody>
@@ -73,6 +84,10 @@ const summariesByCategory = computed(() => new Map(
   left: 0;
   background-color: var(--bs-body-bg);
   white-space: nowrap;
+}
+
+.table-legend {
+  font-size: 0.78rem;
 }
 
 .category-dot {

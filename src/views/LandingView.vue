@@ -14,7 +14,7 @@ import { ref, watch } from 'vue'
 import { motion } from 'motion-v'
 import { useRoute, useRouter } from 'vue-router'
 import logoUrl from '@/assets/BYA_logo.png'
-import ClauseCard from '@/components/ClauseCard.vue'
+import posterUrl from '@/assets/landingPagePoster.jpeg'
 import DocumentUploadPanel from '@/components/DocumentUploadPanel.vue'
 import RiskPreferenceSettings from '@/components/RiskPreferenceSettings.vue'
 import SearchBar from '@/components/SearchBar.vue'
@@ -22,7 +22,7 @@ import { useDocumentSession } from '@/composables/useDocumentSession'
 import { useServiceCatalogue } from '@/composables/useServiceCatalogue'
 import { useTheme } from '@/composables/useTheme'
 import { serviceRoute, uploadReviewRoute } from '@/lib/flow-routes'
-import type { RiskFinding, Service } from '@/types'
+import type { Service } from '@/types'
 
 const BUTTON_SPRING = { type: 'spring', stiffness: 400, damping: 17 }
 
@@ -76,21 +76,6 @@ const STATS = [
     source: 'Obar & Oeldorf-Hirsch, "The Biggest Lie on the Internet" (2020)',
   },
 ]
-
-const EXAMPLE_FINDING: RiskFinding = {
-  text: 'We may terminate or suspend your account at any time, without notice or liability, for any reason.',
-  start: 0,
-  end: 0,
-  occurrenceCount: 1,
-  occurrenceStarts: [],
-  categories: [{ id: 'unilateral_termination', name: 'Unilateral termination', score: 1 }],
-  predictedLabel: 'not_risky',
-  riskLevel: 'high',
-  riskLevelMessage: '',
-  reviewCategories: [],
-}
-const EXAMPLE_CATEGORY_PRIORITY = ['unilateral_termination']
-const EXAMPLE_ENABLED_CATEGORY_IDS = new Set(['unilateral_termination'])
 
 const STEPS = [
   {
@@ -159,39 +144,28 @@ function reviewUpload(document: { name: string; content: string }) {
 
   <main>
     <!-- Hero -->
-    <section class="container app-shell pt-5 pb-4 pb-md-5 mt-md-4">
-      <div class="hero row align-items-center gy-4">
-        <div class="col-lg-7">
-          <p class="eyebrow mb-3">TERMS OF SERVICE &amp; PRIVACY POLICIES, DECODED</p>
-          <h1 class="display-6 fw-bold mb-3">
-            Before you tap "I agree"...
-          </h1>
-          <div class="row g-3 stats-row mb-3">
-            <div v-for="stat in STATS" :key="stat.label" class="col-4">
-              <p class="stat-value mb-1">{{ stat.value }}</p>
-              <p class="stat-label mb-0">{{ stat.label }}</p>
-            </div>
-          </div>
-          <p class="stat-source small text-body-secondary mb-0">
-            Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
-          </p>
-        </div>
-        <div class="col-lg-5">
-          <div class="hero-card card shadow-sm border-0">
-            <div class="card-body p-4">
-              <div class="d-flex align-items-center gap-2 mb-3">
-                <span class="brand-avatar brand-avatar-lg">Nx</span>
-                <div>
-                  <p class="fw-semibold mb-0">Example Streaming Co.</p>
-                  <p class="small text-body-secondary mb-0">Terms of Service</p>
-                </div>
+    <section class="hero-band">
+      <div class="container app-shell hero-content">
+        <div class="hero row align-items-center gy-4">
+          <div class="col-lg-7">
+            <p class="eyebrow mb-3">TERMS OF SERVICE &amp; PRIVACY POLICIES, DECODED</p>
+            <h1 class="display-6 fw-bold mb-3">
+              Before you tap "I agree"...
+            </h1>
+            <div class="row g-3 stats-row mb-3">
+              <div v-for="stat in STATS" :key="stat.label" class="col-4">
+                <p class="stat-value mb-1">{{ stat.value }}</p>
+                <p class="stat-label mb-0">{{ stat.label }}</p>
               </div>
-              <ClauseCard :finding="EXAMPLE_FINDING" :category-priority="EXAMPLE_CATEGORY_PRIORITY"
-                :enabled-category-ids="EXAMPLE_ENABLED_CATEGORY_IDS" :risk-preferences-enabled="true" />
             </div>
+            <p class="stat-source small text-body-secondary mb-0">
+              Sources: {{[...new Set(STATS.map((s) => s.source))].join(' · ')}}
+            </p>
           </div>
         </div>
       </div>
+      <!-- Decorative poster: a slanted panel on the right from lg up, a plain banner below the text on smaller screens. -->
+      <div class="hero-media" aria-hidden="true" :style="{ backgroundImage: `url(${posterUrl})` }"></div>
     </section>
 
     <!-- Start: search a service or upload your own (step 1 of the flow) -->
@@ -327,8 +301,57 @@ function reviewUpload(document: { name: string; content: string }) {
   box-shadow: 0 0.75rem 2rem rgba(var(--bs-primary-rgb), 0.12) !important;
 }
 
-.hero-card {
+/* Hero: text on the page background at left, poster filling the right with a
+   slanted (bottom-left → top-right) edge where the two meet. */
+.hero-band {
+  position: relative;
+  overflow: hidden;
   background: var(--bs-body-bg);
+}
+
+.hero-content {
+  position: relative;
+  z-index: 1;
+  padding-block: 3rem 1.5rem;
+}
+
+.hero-media {
+  height: 14rem;
+  background-size: cover;
+  background-position: center;
+}
+
+@media (min-width: 768px) {
+  .hero-content {
+    padding-block: 4.5rem 3rem;
+  }
+
+  .hero-media {
+    height: 20rem;
+  }
+}
+
+@media (min-width: 992px) {
+  .hero-band {
+    min-height: 26rem;
+    display: flex;
+    align-items: center;
+  }
+
+  .hero-content {
+    padding-block: 4.5rem;
+  }
+
+  /* Bottom-left corner sits just past the col-lg-7 text column (which ends
+     ~W/12 right of centre); the top edge starts --hero-slant further right. */
+  .hero-media {
+    --hero-slant: 12rem;
+    position: absolute;
+    inset: 0 0 0 calc(50% + 6rem);
+    height: auto;
+    background-position: 35% center;
+    clip-path: polygon(var(--hero-slant) 0, 100% 0, 100% 100%, 0 100%);
+  }
 }
 
 .stat-value {
