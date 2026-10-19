@@ -24,6 +24,7 @@ import {
 } from '@huggingface/transformers'
 import { splitClauses, type Clause, type DocumentContext } from './clauses.ts'
 import { detectPrivacyRisks } from './privacy-rules.ts'
+import { calculateOverallRiskScore } from './document-risk-score.ts'
 import { classifyRiskLevel, REVIEW_MARGIN, type RiskLevel } from './risk-level.ts'
 import { supplementalCategories, validCategories } from './category-validation.ts'
 
@@ -32,7 +33,7 @@ import { supplementalCategories, validCategories } from './category-validation.t
  * a Hugging Face download. Override the directory with `BERT_MODEL_DIR`.
  */
 const MODEL_PATH = resolve(
-  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tosAdded',
+  process.env.BERT_MODEL_DIR || 'ml/local-models/bya-legalbert-small-unfair-tos',
 )
 env.allowRemoteModels = false
 
@@ -287,6 +288,7 @@ export async function analyzeWithBert(
     clauseCount: findings.length,
     sourceClauseCount,
     riskyClauseCount: riskyFindings.length,
+    overallRiskScore: calculateOverallRiskScore(findings.length, findings, config.thresholds),
     coverage: 'complete' as const,
     findings,
   }

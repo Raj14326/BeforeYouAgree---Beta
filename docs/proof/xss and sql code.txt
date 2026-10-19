@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="UTF-8">
+  <title>Example Privacy Policy - Security Test</title>
+</head>
+<body>
+  <h1>Example Privacy Policy</h1>
+
+  <p>
+    This is intentionally bogus policy data for testing input validation,
+    HTML-to-text conversion, and safe frontend rendering.
+  </p>
+
+  <h2>XSS test strings</h2>
+
+  <!-- These should be removed or displayed as plain text, never executed. -->
+  <script>alert("XSS_TEST_SCRIPT")</script>
+
+  <img
+    src="invalid-image"
+    onerror="alert('XSS_TEST_IMAGE')"
+    alt="XSS test"
+  >
+
+  <a href="javascript:alert('XSS_TEST_LINK')">
+    Unsafe test link
+  </a>
+
+  <div onclick="alert('XSS_TEST_EVENT')">
+    Event-handler test
+  </div>
+
+  <p>
+    Encoded payload:
+    &lt;script&gt;alert("XSS_TEST_ENCODED")&lt;/script&gt;
+  </p>
+
+  <h2>Harmless SQL injection test strings</h2>
+
+  <p>Company: Example' OR '1'='1</p>
+  <p>Reference: 1 UNION SELECT 'SQL_TEST', NULL --</p>
+  <p>Search value: admin' --</p>
+  <p>Policy ID: 1; SELECT 'SQL_TEST_ONLY'; --</p>
+
+  <h2>Bogus policy content</h2>
+
+  <p>
+    We collect every kind of information forever and may send it to imaginary
+    organisations on the Moon. This statement is deliberately false and exists
+    only to test policy analysis.
+  </p>
+</body>
+</html>

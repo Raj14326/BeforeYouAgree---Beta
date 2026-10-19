@@ -1,0 +1,12 @@
+<script>alert("XSS_TEST_SCRIPT")</script>
+<img src="invalid" onerror="alert(’XSS_TEST_IMAGE’)">
+<a href="javascript:alert(’XSS_TEST_LINK’)">Open policy</a>
+<div onclick="alert(’XSS_TEST_EVENT’)">Privacy settings</div>
+Company: Example’ OR ’1’=’1
+Reference: 1 UNION SELECT ’SQL_TEST’, NULL --
+User: admin’ --
+Policy ID: 1; SELECT ’SQL_TEST_ONLY’; --
+BOGUS POLICY CONTENT:
+We collect every type of personal information forever, including location, contacts,
+messages, financial records and browsing history. We may sell this information to
+imaginary companies without consent. Users cannot access, correct or delete it

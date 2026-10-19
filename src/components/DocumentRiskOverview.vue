@@ -48,7 +48,7 @@ const summaryClass = computed(() => {
       <div class="col-sm-6">
         <div class="nutrition-tile h-100">
           <div class="d-flex justify-content-between align-items-baseline">
-            <span class="fs-5 fw-semibold">{{ analysis.riskyClauseCount }} / {{ analysis.clauseCount }}</span>
+            <span class="fs-5 fw-semibold">{{ risk.flaggedClauseCount }} / {{ analysis.clauseCount }}</span>
             <span class="badge text-bg-secondary">{{ risk.flaggedShare }}% flagged</span>
           </div>
           <div

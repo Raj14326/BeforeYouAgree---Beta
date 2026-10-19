@@ -60,6 +60,8 @@ export type Analysis = {
   model: string
   clauseCount: number
   riskyClauseCount: number
+  /** Preference-neutral score calculated by the analysis API. */
+  overallRiskScore?: number
   findings: RiskFinding[]
 }
 

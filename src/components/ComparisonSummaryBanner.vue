@@ -54,6 +54,31 @@ const canGenerate = computed(() =>
           </h3>
           <p class="mb-0">{{ summary.overview }}</p>
         </div>
+        <div v-if="summary.comparisons.length" class="category-summaries mb-3">
+          <h3 class="h6 mb-2">Comparison by flagged category</h3>
+          <ul class="list-group list-group-flush border rounded">
+            <li
+              v-for="comparison in summary.comparisons"
+              :key="comparison.categoryId"
+              class="list-group-item py-2 px-3"
+            >
+              <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                <div class="small fw-semibold">{{ comparison.categoryName }}</div>
+                <span
+                  class="badge rounded-pill"
+                  :class="comparison.betterDocumentName ? 'text-bg-success' : 'text-bg-secondary'"
+                >
+                  {{
+                    comparison.betterDocumentName
+                      ? `Fewer identified risks: ${comparison.betterDocumentName}`
+                      : 'No clear difference'
+                  }}
+                </span>
+              </div>
+              <div class="small text-body-secondary">{{ comparison.summary }}</div>
+            </li>
+          </ul>
+        </div>
         <p class="small text-body-secondary mb-0">
           This compares policy wording, not what companies actually do.
         </p>

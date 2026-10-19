@@ -75,8 +75,10 @@ const CACHE_TTL_MS = 10 * 60 * 1000
 const CONTENT_CACHE_TTL_MS = 60 * 60 * 1000
 
 // Per-IP rate limit: RATE_LIMIT requests per RATE_WINDOW_MS.
-const RATE_LIMIT = 60
+const RATE_LIMIT = 200
 const RATE_WINDOW_MS = 60 * 1000
+const COMPARISON_RATE_LIMIT = 50
+const COMPARISON_RATE_WINDOW_MS = 60 * 60 * 1000
 const MAX_CONTENT_LENGTH = 500_000
 const MAX_JSON_BODY_BYTES = 3_100_000
 const ALLOWED_ORIGINS = new Set(
@@ -819,11 +821,12 @@ function enforceComparisonRateLimit(request: IncomingMessage) {
   const now = Date.now()
   const bucket = comparisonBuckets.get(key)
   if (!bucket || bucket.resetAt <= now) {
-    comparisonBuckets.set(key, { count: 1, resetAt: now + 60 * 60 * 1000 })
+    comparisonBuckets.set(key, { count: 1, resetAt: now + COMPARISON_RATE_WINDOW_MS })
     return
   }
   bucket.count += 1
-  if (bucket.count > 10) throw clientError(429, 'AI comparison limit reached. Try again later.')
+  if (bucket.count > COMPARISON_RATE_LIMIT)
+    throw clientError(429, 'AI comparison limit reached. Try again later.')
 }
 
 /**

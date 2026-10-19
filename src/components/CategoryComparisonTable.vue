@@ -8,16 +8,20 @@
  */
 import { computed } from 'vue'
 import type { CompareEntry } from '@/composables/useCompareList'
+import type { ComparisonSummary } from '@/types'
 import { aggregateScorecardRows } from '@/lib/category-aggregation'
 import { categoryColor } from '@/lib/category-colors'
 
-const { entries } = defineProps<{ entries: CompareEntry[] }>()
+const { entries, summary } = defineProps<{ entries: CompareEntry[]; summary?: ComparisonSummary | null }>()
 
 // aggregateScorecardRows always returns the same fixed taxonomy in the same
 // order regardless of the analysis, so rows line up positionally across
 // every entry's own call.
 const rowsByEntry = computed(() => entries.map((entry) => aggregateScorecardRows(entry.analysis)))
 const categoryDefs = computed(() => rowsByEntry.value[0] ?? [])
+const summariesByCategory = computed(() => new Map(
+  (summary?.comparisons ?? []).map((comparison) => [comparison.categoryId, comparison.summary]),
+))
 </script>
 
 <template>
@@ -41,12 +45,15 @@ const categoryDefs = computed(() => rowsByEntry.value[0] ?? [])
               <td class="category-col">
                 <span class="category-dot" :style="{ backgroundColor: categoryColor(def.id) }"></span>
                 {{ def.name }}
+                <div v-if="summariesByCategory.get(def.id)" class="category-summary text-body-secondary">
+                  {{ summariesByCategory.get(def.id) }}
+                </div>
               </td>
               <td v-for="(entry, colIndex) in entries" :key="entry.id" class="text-center">
                 <span v-if="rowsByEntry[colIndex]![rowIndex]!.detected" class="badge rounded-pill text-bg-danger">
                   {{ rowsByEntry[colIndex]![rowIndex]!.occurrences }}
                 </span>
-                <span v-else class="text-body-tertiary" aria-label="Not detected">—</span>
+                <span v-else class="text-body-tertiary" aria-label="Not detected">-</span>
               </td>
             </tr>
           </tbody>
@@ -75,5 +82,13 @@ const categoryDefs = computed(() => rowsByEntry.value[0] ?? [])
   height: 0.55rem;
   border-radius: 50%;
   margin-right: 0.5rem;
+}
+
+.category-summary {
+  max-width: 34rem;
+  margin-top: 0.3rem;
+  white-space: normal;
+  font-size: 0.78rem;
+  font-weight: 400;
 }
 </style>

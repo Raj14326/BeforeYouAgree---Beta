@@ -68,7 +68,7 @@ async function onTabKeydown(event: KeyboardEvent, index: number) {
 async function selectTab(id: string) {
   activeId.value = id
   await nextTick()
-  document.getElementById(`action-guide-tab-${id}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  document.getElementById(`action-guide-tab-${id}`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
 }
 </script>
 

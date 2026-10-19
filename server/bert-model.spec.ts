@@ -1,16 +1,30 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest'
+
+const inference = vi.hoisted(() => ({ rows: [] as number[][] }))
+
+vi.mock('@huggingface/transformers', () => ({
+  env: { allowRemoteModels: true },
+  AutoTokenizer: {
+    from_pretrained: vi.fn(async () => (texts: string[]) => ({ texts })),
+  },
+  AutoModelForSequenceClassification: {
+    from_pretrained: vi.fn(async () => async (inputs: { texts: string[] }) => ({
+      logits: {
+        data: new Float32Array(
+          inputs.texts.flatMap(() => inference.rows.shift() ?? Array(8).fill(-10)),
+        ),
+      },
+    })),
+  },
+}))
+
 import { splitClauses } from './clauses.ts'
 import { analyzeWithBert } from './bert-model.ts'
 
-afterEach(() => vi.unstubAllGlobals())
-const modelInfo = {
-  architecture: 'LEGAL-BERT-Small', baseModel: 'fixture/model',
-  baseModelUrl: 'https://huggingface.co/fixture/model', modelRevision: 'abc',
-  trainingDataset: 'fixture/data', datasetUrl: 'https://huggingface.co/datasets/fixture/data',
-  datasetRevision: 'def', datasetLicense: 'CC-BY-4.0', language: 'English',
-  scope: 'test scope', scoreMeaning: 'uncalibrated',
-}
+afterEach(() => {
+  inference.rows = []
+})
 
 describe('BERT document adapter', () => {
   it('preserves repeated text, short clauses and UTF-16 offsets', () => {
@@ -28,34 +42,36 @@ describe('BERT document adapter', () => {
     expect(clauses.map(item => item.text)).toEqual(['We can terminate access.', 'However, we must first give notice.'])
   })
 
-  it('anchors out-of-order model results by ID and does not round before classifying', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      model: 'fixture', modelInfo, threshold: 0.6, findings: [
-        { clauseId: 'clause-1', riskProbability: 0.59999999, predictedLabel: 'not_risky', needsReview: true, windowCount: 1 },
-        { clauseId: 'clause-0', riskProbability: 0.9, predictedLabel: 'risky', needsReview: false, windowCount: 2 },
-      ],
-    }))))
-    const result = await analyzeWithBert('No refunds.\n\nNo refunds.')
+  it('classifies unique clauses locally and retains repeated source offsets', async () => {
+    inference.rows = [[3, -10, -10, -10, -10, -10, -10, -10]]
+    const clause = 'We limit our liability for every loss or damage.'
+    const result = await analyzeWithBert(`${clause}\n\n${clause}`)
+
+    expect(result.sourceClauseCount).toBe(2)
+    expect(result.clauseCount).toBe(1)
     expect(result.riskyClauseCount).toBe(1)
-    expect(result.findings[1]!.predictedLabel).toBe('not_risky')
-    expect(result.findings[1]!.start).toBe(13)
+    expect(result.findings[0]!.predictedLabel).toBe('risky')
+    expect(result.findings[0]!.occurrenceCount).toBe(2)
+    expect(result.findings[0]!.occurrenceStarts).toEqual([0, clause.length + 2])
     expect(result.coverage).toBe('complete')
   })
 
-  it('rejects missing findings instead of showing partial coverage as safe', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ model: 'x', modelInfo, threshold: 0.5, findings: [] }))))
-    await expect(analyzeWithBert('No refunds.')).rejects.toMatchObject({ statusCode: 502 })
+  it('does not mark a clause risky when all local model scores are below review range', async () => {
+    inference.rows = [Array(8).fill(-10)]
+    const result = await analyzeWithBert('You may download a copy of your account information.')
+
+    expect(result.riskyClauseCount).toBe(0)
+    expect(result.findings[0]!.predictedLabel).toBe('not_risky')
+    expect(result.findings[0]!.riskLevel).toBe('low')
   })
 
-  it('does not silently fall back to NB when inference is unavailable', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
-    await expect(analyzeWithBert('No refunds.')).rejects.toMatchObject({ statusCode: 503 })
-  })
+  it('combines deterministic privacy rules with local model results', async () => {
+    inference.rows = [Array(8).fill(-10)]
+    const result = await analyzeWithBert(
+      'We may collect personal information including your account information.',
+    )
 
-  it('rejects duplicate IDs and non-finite/out-of-range scores', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      model: 'x', modelInfo, threshold: 0.5, findings: [{ clauseId: 'clause-0', riskProbability: 1.1, predictedLabel: 'risky', needsReview: false, windowCount: 1 }],
-    }))))
-    await expect(analyzeWithBert('No refunds.')).rejects.toMatchObject({ statusCode: 502 })
+    expect(result.riskyClauseCount).toBe(1)
+    expect(result.findings[0]!.categories.map(({ id }) => id)).toContain('privacy_broad_collection')
   })
 })

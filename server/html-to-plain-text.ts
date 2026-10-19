@@ -84,13 +84,36 @@ function convertHtml(value: string) {
         format: 'byaHeading',
         options: { uppercase: false, level: Number(selector[1]) },
       })),
+      // Accordion labels are commonly buttons rather than semantic headings.
+      // Preserve accessible drawer controls as section context while the
+      // generic button rule below continues to discard unrelated UI chrome.
+      {
+        selector: 'button[aria-expanded]',
+        format: 'byaHeading',
+        options: { uppercase: false, level: 2 },
+      },
+      {
+        selector: '[role="button"][aria-expanded]',
+        format: 'byaHeading',
+        options: { uppercase: false, level: 2 },
+      },
+      {
+        selector: 'summary',
+        format: 'byaHeading',
+        options: { uppercase: false, level: 2 },
+      },
       { selector: 'script', format: 'skip' },
       { selector: 'style', format: 'skip' },
       { selector: 'noscript', format: 'skip' },
       { selector: 'template', format: 'skip' },
       { selector: 'iframe', format: 'skip' },
       { selector: 'svg', format: 'skip' },
-      { selector: 'form', format: 'skip' },
+      // Some CMSs (notably ASP.NET WebForms) wrap the entire page, including
+      // the policy article, in one form. Keep its readable descendants and
+      // discard only the actual controls so the policy is not erased.
+      { selector: 'input', format: 'skip' },
+      { selector: 'textarea', format: 'skip' },
+      { selector: 'select', format: 'skip' },
       { selector: 'nav', format: 'skip' },
       { selector: 'button', format: 'skip' },
       { selector: 'img', format: 'skip' },

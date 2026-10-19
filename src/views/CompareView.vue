@@ -116,7 +116,7 @@ function openEntry(entry: CompareEntry) {
         </div>
       </div>
 
-      <CategoryComparisonTable :entries="entries" />
+      <CategoryComparisonTable :entries="entries" :summary="summary" />
     </template>
   </main>
 </template>

@@ -124,7 +124,7 @@ const { activeInfo, scheduleInfo, scheduleInfoAtPointer, closeInfo } = useHoverT
                     <span class="visually-hidden">Detected</span>
                   </span>
                 </span>
-                <span v-else class="text-body-tertiary" aria-label="Not detected">—</span>
+                <span v-else class="text-body-tertiary" aria-label="Not detected">-</span>
               </td>
             </tr>
           </tbody>

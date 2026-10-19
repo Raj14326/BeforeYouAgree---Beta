@@ -42,6 +42,11 @@ describe('comparison evidence', () => {
         bestFitDocumentId: 'b',
         overview: 'Both documents provide evidence of sharing.',
         overrides: [],
+        categorySummaries: [{
+          categoryId: 'privacy_third_party_sharing',
+          summary: 'Service B shows less evidence of advertising-related sharing than Service A.',
+          evidenceIds: ['E1', 'E2'],
+        }],
         caveat: 'This comparison is limited to the supplied evidence.',
       }) } }],
     }), { status: 200 }))
@@ -50,6 +55,7 @@ describe('comparison evidence', () => {
     const result = await compareWithGroq(documents, 'secret', 'test-model')
     expect(result.bestFitDocumentId).toBe('b')
     expect(result.comparisons[0]?.evidenceIds).toEqual(['E1', 'E2'])
+    expect(result.comparisons[0]?.summary).toContain('Service B shows less evidence')
     const request = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     expect(request.store).toBe(false)
     expect(request.messages[0].content).toContain('closest fit based only on fewer identified risks')
@@ -75,6 +81,7 @@ describe('comparison evidence', () => {
         bestFitDocumentId: 'b',
         overview: completeSentence.repeat(10) + 'This ending must not be cut in half.',
         overrides: [],
+        categorySummaries: [],
         caveat: 'This comparison is limited to published wording.',
       }) } }],
     }), { status: 200 }))
@@ -96,6 +103,7 @@ describe('comparison evidence', () => {
           reason: 'Service A is safer based on the meaning of both cited clauses.',
           evidenceIds: ['E1', 'E2'],
         }],
+        categorySummaries: [],
         caveat: 'Limited to supplied evidence.',
       }) } }],
     }), { status: 200 }))
@@ -119,6 +127,7 @@ describe('comparison evidence', () => {
         bestFitDocumentId: 'b',
         overview: 'The documents differ.',
         overrides: [],
+        categorySummaries: [],
         caveat: 'Limited to supplied evidence.',
       }) } }],
     }), { status: 200 })
@@ -132,8 +141,8 @@ describe('comparison evidence', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const first = JSON.parse(fetchMock.mock.calls[0]![1].body as string)
     const retry = JSON.parse(fetchMock.mock.calls[1]![1].body as string)
-    expect(first.max_completion_tokens).toBe(450)
-    expect(retry.max_completion_tokens).toBe(350)
+    expect(first.max_completion_tokens).toBe(900)
+    expect(retry.max_completion_tokens).toBe(650)
     const retryPrompt = JSON.parse(retry.messages[1].content)
     expect(retryPrompt.matchedClauses).toHaveLength(2)
   })
